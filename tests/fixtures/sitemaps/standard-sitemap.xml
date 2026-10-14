@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+	<url>
+		<loc>https://shop.example.test/products/rose-eau-de-parfum-50ml</loc>
+	</url>
+	<url>
+		<loc>https://shop.example.test/products/rose-eau-de-parfum-100ml</loc>
+	</url>
+	<url>
+		<loc>https://shop.example.test/category/perfume</loc>
+	</url>
+	<url>
+		<loc>https://shop.example.test/assets/logo.png</loc>
+	</url>
+</urlset>

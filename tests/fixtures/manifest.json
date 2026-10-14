@@ -1,0 +1,12 @@
+{
+	"sitemapEntryPoints": ["https://shop.example.test/sitemaps/sitemap-index.xml"],
+	"sitemapFixtures": {
+		"https://shop.example.test/sitemaps/sitemap-index.xml": "tests/fixtures/sitemaps/sitemap-index.xml",
+		"https://shop.example.test/sitemaps/nested-sitemap-1.xml": "tests/fixtures/sitemaps/nested-sitemap-1.xml",
+		"https://shop.example.test/sitemaps/nested-sitemap-2.xml": "tests/fixtures/sitemaps/nested-sitemap-2.xml"
+	},
+	"pageFixtures": {
+		"https://shop.example.test/products/jasmine-body-lotion-200ml": "tests/fixtures/html/product-graph.html",
+		"https://shop.example.test/products/sandalwood-soap-100g": "tests/fixtures/html/product-missing-price.html"
+	}
+}

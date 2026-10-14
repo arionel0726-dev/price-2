@@ -11,7 +11,9 @@
 		"db:studio": "drizzle-kit studio",
 		"worker:dev": "tsx watch src/workers/index.ts",
 		"worker:start": "tsx src/workers/index.ts",
-		"test": "bun test"
+		"test": "bun test",
+		"discover": "bun run src/scripts/discover.ts",
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"cheerio": "^1.2.0",
@@ -31,6 +33,7 @@
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
 		"babel-plugin-react-compiler": "1.0.0",
+		"bun-types": "^1.4.3",
 		"drizzle-kit": "^0.31.11",
 		"tailwindcss": "^4",
 		"tsx": "^4.23.15",
