@@ -15,6 +15,7 @@
 		"discover": "bun run src/scripts/discover.ts",
 		"sync-catalog": "bun run src/scripts/sync-catalog.ts",
 		"match-catalog": "bun run src/scripts/match-catalog.ts",
+		"validate-live": "bun run src/scripts/validate-live.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {

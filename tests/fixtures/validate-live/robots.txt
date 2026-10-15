@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /search
+Disallow: /auth
+Disallow: /cart
+Disallow: /api
+Disallow: /import
+Disallow: /ro/catalog/disallowed-category/
+Allow: /

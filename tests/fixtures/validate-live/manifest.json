@@ -1,0 +1,15 @@
+{
+	"sitemapUrl": "https://vizaje-nica.com/sitemap.xml",
+	"sitemapFixture": "tests/fixtures/validate-live/sitemaps/sitemap.xml",
+	"robotsUrl": "https://vizaje-nica.com/robots.txt",
+	"robotsFixture": "tests/fixtures/validate-live/robots.txt",
+	"pageFixtures": {
+		"https://vizaje-nica.com/ro/catalog/antivozsrastnyie-sredstva-dlya-litsa/22006": "tests/fixtures/validate-live/html/22006-complete.html",
+		"https://vizaje-nica.com/ro/catalog/parfumuri-dama/31050": "tests/fixtures/validate-live/html/31050-missing-fields.html",
+		"https://vizaje-nica.com/ro/catalog/rujuri/40120": "tests/fixtures/validate-live/html/40120-malformed.html",
+		"https://vizaje-nica.com/ro/catalog/rujuri/40121": "tests/fixtures/validate-live/html/40121-no-jsonld.html",
+		"https://vizaje-nica.com/ro/catalog/ingrijire-corp/50200": "tests/fixtures/validate-live/html/50200-non-product.html",
+		"https://vizaje-nica.com/ro/catalog/disallowed-category/99999": "tests/fixtures/validate-live/html/99999-should-never-be-fetched.html",
+		"https://vizaje-nica.com/ru/catalog/only-ru-variant/60001": "tests/fixtures/validate-live/html/60001-ru-only.html"
+	}
+}
