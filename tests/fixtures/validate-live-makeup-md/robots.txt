@@ -1,0 +1,10 @@
+User-agent: *
+Disallow: /search
+Disallow: /cart
+Disallow: /checkout
+Disallow: /account
+Disallow: /login
+Disallow: /wishlist
+Disallow: /compare
+Disallow: /product/discontinued-item
+Allow: /

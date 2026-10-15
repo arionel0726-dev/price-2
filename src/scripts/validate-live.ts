@@ -21,7 +21,9 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { isDomainAllowlistedForLiveValidation } from '../lib/net/allowlist'
+import { getStoreProfile } from '../lib/discovery/stores/registry'
+import { vizajeNicaStoreProfile } from '../lib/discovery/stores/vizaje-nica'
+import { DisallowedRedirectError, isDomainAllowlistedForLiveValidation } from '../lib/net/allowlist'
 import { DomainScheduler } from '../lib/net/rate-limit'
 import { safeFetch } from '../lib/net/safe-fetch'
 import type { RobotsPageFetch } from '../lib/net/robots-fetch'
@@ -49,6 +51,8 @@ export interface CliArgs {
 	outPath?: string
 	userAgent: string
 	delayMs: number
+	/** Overrides the store profile's default sitemap URL (see src/lib/discovery/stores/). Useful for makeup.md, whose advertised /sitemap/sitemap.xml location is an unconfirmed candidate. */
+	sitemapUrl?: string
 }
 
 const DEFAULT_FIXTURE_MANIFEST_PATH = 'tests/fixtures/validate-live/manifest.json'
@@ -86,6 +90,9 @@ export function parseArgs(argv: string[]): CliArgs {
 				break
 			case '--delay-ms':
 				args.delayMs = Number(argv[++i])
+				break
+			case '--sitemap-url':
+				args.sitemapUrl = argv[++i]
 				break
 			default:
 				throw new Error(`Unknown argument: ${arg}`)
@@ -130,7 +137,8 @@ export async function runFixtureMode(args: CliArgs): Promise<ValidateLiveReport>
 		userAgent: args.userAgent,
 		sitemapEntryUrl: manifest.sitemapUrl,
 		robotsUrl: manifest.robotsUrl,
-		fetchText
+		fetchText,
+		storeProfile: getStoreProfile(args.domain) ?? vizajeNicaStoreProfile
 	})
 }
 
@@ -155,6 +163,9 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 		)
 	}
 
+	const allowlist = overrides.allowlist
+	const storeProfile = getStoreProfile(args.domain) ?? vizajeNicaStoreProfile
+
 	// Concurrency 1, conservative pacing: one in-flight request to this
 	// domain at a time, with at least --delay-ms between requests.
 	const scheduler = new DomainScheduler({ globalConcurrency: 1, perDomainConcurrency: 1, minDelayPerDomainMs: args.delayMs })
@@ -163,12 +174,34 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 		const domain = new URL(url).hostname
 		return scheduler.schedule(domain, async () => {
 			const response = await safeFetch(url, { userAgent: args.userAgent, allowPrivateNetworks: overrides.allowPrivateNetworks })
+
+			// The allowlist is otherwise only checked once, against --domain,
+			// before the first request. Re-check the final URL and every
+			// redirect hop here so a same-origin request that redirects to an
+			// unrelated (but still publicly routable) host is never silently
+			// followed — see src/lib/net/allowlist.ts: DisallowedRedirectError.
+			for (const visitedUrl of [...response.redirectChain, response.url]) {
+				// `.host` (not `.hostname`) so this matches the same authority
+				// string used everywhere else a domain is compared against the
+				// allowlist (including test fixtures that encode a local
+				// server's port, e.g. "127.0.0.1:54321") — a real allowlisted
+				// domain never has a port, so `.host` and `.hostname` agree there.
+				const host = new URL(visitedUrl).host
+				if (!isDomainAllowlistedForLiveValidation(host, allowlist)) {
+					throw new DisallowedRedirectError(host)
+				}
+			}
+
 			return { status: response.status, body: response.body }
 		})
 	}
 
 	const protocol = overrides.protocol ?? 'https'
-	const sitemapEntryUrl = `${protocol}://${args.domain}/sitemap.xml`
+	// A `protocol` override means a test is pointing this at a local server
+	// standing in for `args.domain` (see tests/validation/validate-live-cli.test.ts)
+	// — in that case the sitemap must be constructed from that same
+	// domain/protocol, not the store profile's real-world default URL.
+	const sitemapEntryUrl = args.sitemapUrl ?? (overrides.protocol ? `${protocol}://${args.domain}/sitemap.xml` : storeProfile.defaultSitemapUrl)
 	const robotsUrl = `${protocol}://${args.domain}/robots.txt`
 
 	return validateLiveDomain({
@@ -178,7 +211,8 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 		userAgent: args.userAgent,
 		sitemapEntryUrl,
 		robotsUrl,
-		fetchText
+		fetchText,
+		storeProfile
 	})
 }
 

@@ -36,7 +36,13 @@ describe('validate-live CLI — fixture mode (fully offline)', () => {
 
 		expect(report.mode).toBe('fixture')
 		expect(report.robots.failedClosed).toBe(false)
-		expect(report.discovery).toEqual({ totalSitemapUrls: 11, matchedProductUrlCount: 9, afterLanguageDedupeCount: 7 })
+		expect(report.discovery).toEqual({
+			totalSitemapUrls: 11,
+			matchedProductUrlCount: 9,
+			afterLanguageDedupeCount: 7,
+			status: 'ok',
+			sitemapDiagnostics: []
+		})
 		expect(report.pages).toEqual({ attempted: 6, fetchedSuccessfully: 6, extracted: 3 })
 		expect(report.outcomeCounts).toEqual({
 			extracted: 3,
@@ -44,7 +50,8 @@ describe('validate-live CLI — fixture mode (fully offline)', () => {
 			robots_disallowed: 1,
 			non_product_page: 1,
 			missing_json_ld: 1,
-			invalid_json_ld: 1
+			invalid_json_ld: 1,
+			redirect_disallowed: 0
 		})
 	})
 

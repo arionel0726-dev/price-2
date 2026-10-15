@@ -1,3 +1,4 @@
+import type { SitemapDiagnostic } from '../lib/discovery/types'
 import type { FieldConflict, FieldSource } from '../lib/scraping/types'
 
 export type PageOutcome =
@@ -7,6 +8,8 @@ export type PageOutcome =
 	| 'non_product_page'
 	| 'missing_json_ld'
 	| 'invalid_json_ld'
+	/** The response (or a redirect hop leading to it) touched a host outside the live-validation allowlist — see src/lib/net/allowlist.ts. A specific, more actionable case of "network/access failure". */
+	| 'redirect_disallowed'
 
 export interface ExtractedFieldsSummary {
 	title: string | null
@@ -59,6 +62,16 @@ export interface ValidateLiveReport {
 		totalSitemapUrls: number
 		matchedProductUrlCount: number
 		afterLanguageDedupeCount: number
+		/**
+		 * 'discovery_failed' when the sitemap could not be fetched or parsed
+		 * into any recognizable form (see `sitemapDiagnostics`) and zero URLs
+		 * were discovered as a result — the run still completes and reports
+		 * this clearly rather than silently proceeding as if there were
+		 * simply no products.
+		 */
+		status: 'ok' | 'discovery_failed'
+		/** Per-sitemap-file issues (fetch failures, malformed XML, an unrecognized root element, depth/url limits) — see src/lib/discovery/types.ts. */
+		sitemapDiagnostics: SitemapDiagnostic[]
 	}
 	pages: {
 		attempted: number
@@ -87,6 +100,7 @@ export function emptyOutcomeCounts(): Record<PageOutcome, number> {
 		robots_disallowed: 0,
 		non_product_page: 0,
 		missing_json_ld: 0,
-		invalid_json_ld: 0
+		invalid_json_ld: 0,
+		redirect_disallowed: 0
 	}
 }

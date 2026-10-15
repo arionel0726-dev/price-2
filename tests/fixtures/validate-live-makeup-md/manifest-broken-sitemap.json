@@ -1,0 +1,7 @@
+{
+	"sitemapUrl": "https://makeup.md/sitemap/sitemap.xml",
+	"sitemapFixture": "tests/fixtures/validate-live-makeup-md/sitemaps/sitemap-malformed.xml",
+	"robotsUrl": "https://makeup.md/robots.txt",
+	"robotsFixture": "tests/fixtures/validate-live-makeup-md/robots.txt",
+	"pageFixtures": {}
+}

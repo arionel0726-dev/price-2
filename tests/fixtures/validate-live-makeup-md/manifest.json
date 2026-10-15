@@ -1,0 +1,17 @@
+{
+	"sitemapUrl": "https://makeup.md/sitemap/sitemap.xml",
+	"sitemapFixture": "tests/fixtures/validate-live-makeup-md/sitemaps/sitemap-index.xml",
+	"robotsUrl": "https://makeup.md/robots.txt",
+	"robotsFixture": "tests/fixtures/validate-live-makeup-md/robots.txt",
+	"pageFixtures": {
+		"https://makeup.md/sitemap/sitemap-products.xml": "tests/fixtures/validate-live-makeup-md/sitemaps/sitemap-products.xml",
+		"https://makeup.md/product/ruj-mat-catrice-010": "tests/fixtures/validate-live-makeup-md/html/ruj-mat-catrice-010-complete.html",
+		"https://makeup.md/product/rimel-maybelline-24h": "tests/fixtures/validate-live-makeup-md/html/rimel-maybelline-24h-missing-gtin.html",
+		"https://makeup.md/product/fond-de-ten-loreal-030": "tests/fixtures/validate-live-makeup-md/html/fond-de-ten-loreal-030-invalid-gtin.html",
+		"https://makeup.md/product/parfum-chanel-no5-multi": "tests/fixtures/validate-live-makeup-md/html/parfum-chanel-no5-multi-variant.html",
+		"https://makeup.md/product/no-jsonld-sample": "tests/fixtures/validate-live-makeup-md/html/no-jsonld-product.html",
+		"https://makeup.md/product/malformed-jsonld-sample": "tests/fixtures/validate-live-makeup-md/html/malformed-jsonld-product.html",
+		"https://makeup.md/product/machiaj-not-a-product": "tests/fixtures/validate-live-makeup-md/html/catalog-machiaj-category.html",
+		"https://makeup.md/product/discontinued-item": "tests/fixtures/validate-live-makeup-md/html/discontinued-item-should-never-be-fetched.html"
+	}
+}

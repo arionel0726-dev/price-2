@@ -1,5 +1,7 @@
 import { discoverSitemapUrls } from '../discovery/sitemap'
-import { dedupeLanguageVariants, matchVizajeNicaProductUrl } from '../discovery/pilot-patterns'
+import { vizajeNicaStoreProfile } from '../discovery/stores/vizaje-nica'
+import type { StoreProfile } from '../discovery/stores/types'
+import { DisallowedRedirectError } from '../net/allowlist'
 import { fetchRobotsRules, isPathAllowed, type RobotsPageFetch } from '../net/robots-fetch'
 import { extractProductsFromHtml } from '../scraping/extract'
 import type { ExtractionFailure, NormalizedProductRecord } from '../scraping/types'
@@ -27,6 +29,13 @@ export interface ValidateLiveCoreOptions {
 	/** Fetches a URL and returns its status + body. Used uniformly for robots.txt, the sitemap, and product pages — fixture mode reads files, live mode wraps safeFetch + a DomainScheduler (see src/scripts/validate-live.ts). */
 	fetchText: (url: string) => Promise<RobotsPageFetch>
 	maxSitemapUrls?: number
+	/**
+	 * The store-specific discovery profile (URL classification + dedup —
+	 * see src/lib/discovery/stores/). Defaults to vizaje-nica.com's
+	 * profile when omitted, which preserves this function's original
+	 * behavior for existing callers/tests.
+	 */
+	storeProfile?: StoreProfile
 }
 
 function clampSampleSize(requested: number): number {
@@ -82,6 +91,7 @@ async function fetchSitemapAdapter(url: string, fetchText: ValidateLiveCoreOptio
  */
 export async function validateLiveDomain(options: ValidateLiveCoreOptions): Promise<ValidateLiveReport> {
 	const effectiveSampleSize = clampSampleSize(options.requestedSampleSize)
+	const storeProfile = options.storeProfile ?? vizajeNicaStoreProfile
 
 	const robots = await fetchRobotsRules(options.robotsUrl, options.fetchText)
 
@@ -93,7 +103,7 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 			requestedSampleSize: options.requestedSampleSize,
 			effectiveSampleSize,
 			robots: { status: 'fetch_failed', failedClosed: true, reason: robots.reason },
-			discovery: { totalSitemapUrls: 0, matchedProductUrlCount: 0, afterLanguageDedupeCount: 0 },
+			discovery: { totalSitemapUrls: 0, matchedProductUrlCount: 0, afterLanguageDedupeCount: 0, status: 'ok', sitemapDiagnostics: [] },
 			pages: { attempted: 0, fetchedSuccessfully: 0, extracted: 0 },
 			missingFieldCounts: emptyMissingFieldCounts(),
 			outcomeCounts: emptyOutcomeCounts(),
@@ -107,14 +117,16 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 		maxUrls: options.maxSitemapUrls ?? DEFAULT_SITEMAP_URL_LIMIT
 	})
 
-	const matchedUrls = discovery.urls.map((u) => u.url).filter((url) => matchVizajeNicaProductUrl(url) !== null)
-	const dedupedUrls = dedupeLanguageVariants(matchedUrls)
-	// Deterministic sample order: Romanian URLs first (the pilot's preferred language), then the rest, each in discovery order.
-	const sortedUrls = [...dedupedUrls].sort((a, b) => {
-		const langA = matchVizajeNicaProductUrl(a)?.language ?? 'zz'
-		const langB = matchVizajeNicaProductUrl(b)?.language ?? 'zz'
-		return langA === langB ? 0 : langA === 'ro' ? -1 : langB === 'ro' ? 1 : 0
-	})
+	// A sitemap that could not be fetched/parsed into any recognizable form
+	// yields zero URLs alongside a diagnostic — surfaced explicitly here
+	// rather than silently continuing as if the store simply had no
+	// products (see Task 6 §6: "return a clear diagnostic error rather
+	// than silently falling back to uncontrolled crawling").
+	const discoveryStatus: 'ok' | 'discovery_failed' = discovery.urls.length === 0 && discovery.diagnostics.length > 0 ? 'discovery_failed' : 'ok'
+
+	const matchedUrls = discovery.urls.map((u) => u.url).filter((url) => storeProfile.classifyProductUrl(url) !== null)
+	const dedupedUrls = storeProfile.dedupeProductUrls(matchedUrls)
+	const sortedUrls = storeProfile.sortCandidates ? storeProfile.sortCandidates(dedupedUrls) : dedupedUrls
 	const sample = sortedUrls.slice(0, effectiveSampleSize)
 
 	const results: PageResult[] = []
@@ -123,8 +135,8 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 	let extractedCount = 0
 
 	for (const url of sample) {
-		const match = matchVizajeNicaProductUrl(url)
-		const language = match?.language ?? 'other'
+		const match = storeProfile.classifyProductUrl(url)
+		const language = match?.language === 'ro' || match?.language === 'ru' ? match.language : 'other'
 		const pathname = new URL(url).pathname
 
 		if (!isPathAllowed(robots, pathname, options.userAgent)) {
@@ -150,7 +162,7 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 			results.push({
 				url,
 				language,
-				outcome: 'network_failure',
+				outcome: cause instanceof DisallowedRedirectError ? 'redirect_disallowed' : 'network_failure',
 				httpStatus: null,
 				errorMessage: cause instanceof Error ? cause.message : String(cause),
 				extracted: null,
@@ -232,7 +244,9 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 		discovery: {
 			totalSitemapUrls: discovery.urls.length,
 			matchedProductUrlCount: matchedUrls.length,
-			afterLanguageDedupeCount: dedupedUrls.length
+			afterLanguageDedupeCount: dedupedUrls.length,
+			status: discoveryStatus,
+			sitemapDiagnostics: discovery.diagnostics
 		},
 		pages: { attempted, fetchedSuccessfully, extracted: extractedCount },
 		missingFieldCounts,
