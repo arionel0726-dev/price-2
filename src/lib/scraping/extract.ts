@@ -1,5 +1,16 @@
 import { extractJsonLdBlocks, filterProductNodes } from './jsonld'
-import { NormalizedProductRecordSchema, type ExtractionFailure, type ExtractionResult, type NormalizedProductRecord } from './types'
+import { validateGtinChecksum } from './barcode'
+import { extractHtmlFallbackFields, type HtmlFallbackResult } from './html-fallback'
+import {
+	NormalizedProductRecordSchema,
+	type ExtractionFailure,
+	type ExtractionResult,
+	type FieldConflict,
+	type FieldSource,
+	type NormalizedProductRecord,
+	type ProvenanceField
+} from './types'
+import { extractVolumeFromTitle } from './variant'
 import { normalizeAvailability, normalizeBrand, normalizeTitle, normalizeVariant, parsePrice } from '../normalize/normalize'
 
 interface OfferLike {
@@ -16,6 +27,14 @@ function firstOffer(offersValue: unknown): OfferLike | null {
 	return offerOrOffers as OfferLike
 }
 
+/**
+ * Reads SKU and GTIN off a JSON-LD Product node. The `gtin*` properties
+ * are schema.org's explicit way of labeling a value as a GTIN, so finding
+ * one there satisfies "explicitly identified as a barcode/GTIN" — but the
+ * value is still only accepted after it passes the GS1 checksum.
+ * `sku` never feeds into `gtin`: a store-specific stock code is not a
+ * GTIN even when it happens to be all-digits.
+ */
 function extractIdentifiers(node: Record<string, unknown>): { sku: string | null; gtin: string | null } {
 	const sku = typeof node.sku === 'string' ? node.sku.trim() || null : null
 
@@ -24,16 +43,73 @@ function extractIdentifiers(node: Record<string, unknown>): { sku: string | null
 	for (const field of gtinFields) {
 		const value = node[field]
 		if (typeof value === 'string' && value.trim()) {
-			gtin = value.trim()
-			break
+			const validated = validateGtinChecksum(value.trim())
+			if (validated) {
+				gtin = validated
+				break
+			}
 		}
 	}
 
 	return { sku, gtin }
 }
 
-function buildRecordFromProductNode(sourceUrl: string, node: Record<string, unknown>): NormalizedProductRecord | null {
-	const { sku, gtin } = extractIdentifiers(node)
+/**
+ * Resolves `variant` and `gtin` using the documented precedence:
+ * 1. Explicit JSON-LD structured attributes (already computed by the
+ *    caller — `jsonLdVariant`/`jsonLdGtin`).
+ * 2. A reliable HTML attribute (`htmlFallback`).
+ * 3. Conservative extraction from the product title (variant only —
+ *    GTIN is never guessed from a title).
+ *
+ * When JSON-LD already has a value AND the HTML fallback independently
+ * found a *different* one, the JSON-LD value is kept (never silently
+ * overwritten) and the disagreement is recorded in `conflicts` so it is
+ * visible rather than hidden.
+ */
+function resolveFieldsWithFallback(
+	jsonLdVariant: string | null,
+	jsonLdGtin: string | null,
+	normalizedTitle: string | null,
+	htmlFallback: HtmlFallbackResult
+): {
+	variant: string | null
+	variantSource: FieldSource
+	gtin: string | null
+	gtinSource: FieldSource
+	conflicts: FieldConflict[]
+} {
+	const conflicts: FieldConflict[] = []
+
+	let variant = jsonLdVariant
+	let variantSource: FieldSource = jsonLdVariant ? 'json_ld' : 'missing'
+	if (htmlFallback.variant && jsonLdVariant && htmlFallback.variant.normalized !== jsonLdVariant) {
+		conflicts.push({ field: 'variant', jsonLdValue: jsonLdVariant, htmlValue: htmlFallback.variant.normalized })
+	} else if (!jsonLdVariant && htmlFallback.variant) {
+		variant = htmlFallback.variant.normalized
+		variantSource = 'html_attribute'
+	} else if (!jsonLdVariant) {
+		const fromTitle = extractVolumeFromTitle(normalizedTitle)
+		if (fromTitle) {
+			variant = fromTitle.normalized
+			variantSource = 'title'
+		}
+	}
+
+	let gtin = jsonLdGtin
+	let gtinSource: FieldSource = jsonLdGtin ? 'json_ld' : 'missing'
+	if (htmlFallback.gtin && jsonLdGtin && htmlFallback.gtin !== jsonLdGtin) {
+		conflicts.push({ field: 'gtin', jsonLdValue: jsonLdGtin, htmlValue: htmlFallback.gtin })
+	} else if (!jsonLdGtin && htmlFallback.gtin) {
+		gtin = htmlFallback.gtin
+		gtinSource = 'html_attribute'
+	}
+
+	return { variant, variantSource, gtin, gtinSource, conflicts }
+}
+
+function buildRecordFromProductNode(sourceUrl: string, node: Record<string, unknown>, htmlFallback: HtmlFallbackResult): NormalizedProductRecord | null {
+	const { sku, gtin: jsonLdGtin } = extractIdentifiers(node)
 	const offer = firstOffer(node.offers)
 
 	// AggregateOffer has lowPrice/highPrice instead of a single price.
@@ -44,21 +120,39 @@ function buildRecordFromProductNode(sourceUrl: string, node: Record<string, unkn
 	const rawBrand = node.brand ?? null
 	const rawAvailability = offer?.availability ?? null
 
+	const normalizedTitle = normalizeTitle(rawTitle)
+	const normalizedBrand = normalizeBrand(rawBrand)
+	const jsonLdVariant = normalizeVariant(node)
+	const normalizedAvailability = normalizeAvailability(rawAvailability)
+
+	const resolved = resolveFieldsWithFallback(jsonLdVariant, jsonLdGtin, normalizedTitle, htmlFallback)
+
+	const fieldProvenance: Partial<Record<ProvenanceField, FieldSource>> = {
+		title: normalizedTitle ? 'json_ld' : 'missing',
+		brand: normalizedBrand ? 'json_ld' : 'missing',
+		sku: sku ? 'json_ld' : 'missing',
+		gtin: resolved.gtinSource,
+		variant: resolved.variantSource,
+		price: amount !== null ? 'json_ld' : 'missing',
+		currency: currency !== null ? 'json_ld' : 'missing',
+		availability: normalizedAvailability ? 'json_ld' : 'missing'
+	}
+
 	const candidate = {
 		sourceUrl,
 		extractedAt: new Date().toISOString(),
 		title: {
 			raw: rawTitle,
-			normalized: normalizeTitle(rawTitle)
+			normalized: normalizedTitle
 		},
 		brand: {
 			raw: rawBrand,
-			normalized: normalizeBrand(rawBrand)
+			normalized: normalizedBrand
 		},
 		sku,
-		gtin,
+		gtin: resolved.gtin,
 		variant: {
-			normalized: normalizeVariant(node)
+			normalized: resolved.variant
 		},
 		price: {
 			raw: rawPrice,
@@ -67,9 +161,11 @@ function buildRecordFromProductNode(sourceUrl: string, node: Record<string, unkn
 		},
 		availability: {
 			raw: rawAvailability,
-			normalized: normalizeAvailability(rawAvailability)
+			normalized: normalizedAvailability
 		},
-		rawJsonLd: node
+		rawJsonLd: node,
+		fieldProvenance,
+		conflicts: resolved.conflicts.length > 0 ? resolved.conflicts : undefined
 	}
 
 	const parsed = NormalizedProductRecordSchema.safeParse(candidate)
@@ -116,9 +212,11 @@ export function extractProductsFromHtml(sourceUrl: string, html: string): Extrac
 		return { products: [], failures }
 	}
 
+	const htmlFallback = extractHtmlFallbackFields(html)
+
 	const products: NormalizedProductRecord[] = []
 	for (const node of productNodes) {
-		const record = buildRecordFromProductNode(sourceUrl, node)
+		const record = buildRecordFromProductNode(sourceUrl, node, htmlFallback)
 		if (record) {
 			products.push(record)
 		} else {

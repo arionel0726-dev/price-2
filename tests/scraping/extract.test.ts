@@ -108,3 +108,138 @@ describe('extractProductsFromHtml', () => {
 		expect(a.products[0].price.amount).not.toBe(b.products[0].price.amount)
 	})
 })
+
+describe('extractProductsFromHtml — text encoding', () => {
+	test('repairs a mojibake-corrupted title in normalized form while preserving the raw value as extracted', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/moresque-jasminisha',
+			loadFixture('product-mojibake-title.html')
+		)
+
+		expect(products).toHaveLength(1)
+		expect(products[0].title.raw).toBe('MORESQUE Jasminisha 75 ml ApДѓ de parfum')
+		expect(products[0].title.normalized).toBe('MORESQUE Jasminisha 75 ml Apă de parfum')
+	})
+})
+
+describe('extractProductsFromHtml — GTIN validation', () => {
+	test('rejects a gtin13 value that fails the GS1 checksum, reporting it as missing rather than keeping a wrong value', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/crema-de-fata',
+			loadFixture('product-invalid-gtin.html')
+		)
+
+		expect(products).toHaveLength(1)
+		expect(products[0].gtin).toBeNull()
+		expect(products[0].fieldProvenance?.gtin).toBe('missing')
+	})
+})
+
+describe('extractProductsFromHtml — variant/GTIN extraction precedence', () => {
+	test('uses a reliable HTML attribute for variant when JSON-LD has none', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/apa-de-parfum-lumina',
+			loadFixture('product-html-fallback-variant.html')
+		)
+
+		expect(products[0].variant.normalized).toBe('75 ml')
+		expect(products[0].fieldProvenance?.variant).toBe('html_attribute')
+	})
+
+	test('uses a reliable HTML attribute for GTIN when JSON-LD has none', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/sapun-natural',
+			loadFixture('product-html-fallback-gtin.html')
+		)
+
+		expect(products[0].gtin).toBe('5901234123457')
+		expect(products[0].fieldProvenance?.gtin).toBe('html_attribute')
+	})
+
+	test('falls back to conservative title extraction for variant only when JSON-LD and HTML attributes both lack it', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/apa-de-toaleta-citrice',
+			loadFixture('product-title-volume.html')
+		)
+
+		expect(products[0].variant.normalized).toBe('100 ml')
+		expect(products[0].fieldProvenance?.variant).toBe('title')
+	})
+
+	test('never invents a variant from a title that has no explicit size (e.g. a shade code)', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/ruj-mat-catrice',
+			loadFixture('product-shade-not-volume.html')
+		)
+
+		expect(products[0].variant.normalized).toBeNull()
+		expect(products[0].fieldProvenance?.variant).toBe('missing')
+	})
+
+	test('extracts a GTIN only when explicitly labeled as a barcode in the page body', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/parfum-de-corp',
+			loadFixture('product-labeled-barcode-body.html')
+		)
+
+		expect(products[0].gtin).toBe('5901234123457')
+		expect(products[0].fieldProvenance?.gtin).toBe('html_attribute')
+	})
+})
+
+describe('extractProductsFromHtml — conflicting JSON-LD vs. HTML data', () => {
+	test('keeps the JSON-LD variant and reports the conflict rather than silently picking one', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/crema-de-corp',
+			loadFixture('product-conflicting-variant.html')
+		)
+
+		expect(products[0].variant.normalized).toBe('50ml') // JSON-LD value kept, never overwritten
+		expect(products[0].fieldProvenance?.variant).toBe('json_ld')
+		expect(products[0].conflicts).toEqual([{ field: 'variant', jsonLdValue: '50ml', htmlValue: '75 ml' }])
+	})
+
+	test('keeps the JSON-LD GTIN and reports the conflict rather than silently picking one', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/lotiune-de-corp',
+			loadFixture('product-conflicting-gtin.html')
+		)
+
+		expect(products[0].gtin).toBe('5901234123457') // JSON-LD value kept
+		expect(products[0].fieldProvenance?.gtin).toBe('json_ld')
+		expect(products[0].conflicts).toEqual([{ field: 'gtin', jsonLdValue: '5901234123457', htmlValue: '4006381333931' }])
+	})
+})
+
+describe('extractProductsFromHtml — incorrectly formatted prices', () => {
+	test('parses a price string with a thousands separator and trailing currency text', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/crema-de-noapte',
+			loadFixture('product-dirty-price.html')
+		)
+
+		expect(products[0].price.amount).toBe(1250)
+		expect(products[0].price.currency).toBe('MDL')
+	})
+})
+
+describe('extractProductsFromHtml — field provenance (regression: fully-populated JSON-LD)', () => {
+	test('every present field is attributed to json_ld when extraction has no fallback involvement', () => {
+		const { products } = extractProductsFromHtml(
+			'https://shop.example.test/products/rose-50ml',
+			loadFixture('product-jsonld.html')
+		)
+
+		expect(products[0].fieldProvenance).toEqual({
+			title: 'json_ld',
+			brand: 'json_ld',
+			sku: 'json_ld',
+			gtin: 'json_ld',
+			variant: 'json_ld',
+			price: 'json_ld',
+			currency: 'json_ld',
+			availability: 'json_ld'
+		})
+		expect(products[0].conflicts).toBeUndefined()
+	})
+})

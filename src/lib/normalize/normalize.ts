@@ -1,12 +1,21 @@
+import { repairMojibake } from './encoding'
+
 /** Single source of truth for the normalized availability states, reused by the Zod schema and the Postgres enum. */
 export const AVAILABILITY_VALUES = ['in_stock', 'out_of_stock', 'preorder', 'unknown'] as const
 
 export type Availability = (typeof AVAILABILITY_VALUES)[number]
 
-/** Collapses internal whitespace/newlines and trims. Returns null for empty/non-string input. */
+/**
+ * Collapses internal whitespace/newlines and trims. Returns null for
+ * empty/non-string input. Also repairs the specific UTF-8-misread-as-
+ * Windows-1251 mojibake pattern documented in `src/lib/scraping/encoding.ts`
+ * when (and only when) it is confidently detected — this never touches
+ * text that doesn't match that exact, narrowly-gated corruption signature.
+ */
 export function normalizeWhitespace(value: unknown): string | null {
 	if (typeof value !== 'string') return null
-	const trimmed = value.replace(/\s+/g, ' ').trim()
+	const repaired = repairMojibake(value)
+	const trimmed = repaired.replace(/\s+/g, ' ').trim()
 	return trimmed.length > 0 ? trimmed : null
 }
 
@@ -29,6 +38,44 @@ export interface ParsedPrice {
 }
 
 /**
+ * Parses a numeric amount out of a price string that may carry thousands
+ * separators, a decimal comma instead of a dot, surrounding whitespace, or
+ * trailing/leading non-numeric text (a currency symbol or word a site put
+ * directly in the price field instead of in `priceCurrency`). Returns null
+ * rather than guessing when the digits themselves are ambiguous or absent.
+ *
+ * Decimal/thousands-separator disambiguation: when both `.` and `,` are
+ * present, whichever appears LAST is treated as the decimal separator (the
+ * universal convention) and every earlier occurrence of either is stripped
+ * as a thousands separator — e.g. "1.234,56" (Romanian/Russian style) and
+ * "1,234.56" (US style) both parse to 1234.56. When only one of `.`/`,`
+ * appears, it is treated as the decimal separator (matching the previous,
+ * simpler behavior) — this does not attempt to guess whether "1.234" means
+ * one thousand or one-point-two-three-four, since both readings are
+ * genuinely ambiguous without more context.
+ */
+function parseAmountFromString(rawPrice: string): number | null {
+	const match = rawPrice.match(/-?\d[\d.,\s]*\d|-?\d/)
+	if (!match) return null
+
+	let numeric = match[0].replace(/\s/g, '')
+	const lastDot = numeric.lastIndexOf('.')
+	const lastComma = numeric.lastIndexOf(',')
+
+	if (lastDot !== -1 && lastComma !== -1) {
+		const decimalIndex = Math.max(lastDot, lastComma)
+		const integerPart = numeric.slice(0, decimalIndex).replace(/[.,]/g, '')
+		const fractionalPart = numeric.slice(decimalIndex + 1)
+		numeric = `${integerPart}.${fractionalPart}`
+	} else if (lastComma !== -1) {
+		numeric = numeric.replace(',', '.')
+	}
+
+	const parsed = Number(numeric)
+	return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
  * Parses a schema.org-style price value. Per spec, `price` should be a
  * plain decimal number (as a string or number), and `priceCurrency` an
  * ISO 4217 code. Unparsable amounts are returned as `null` rather than 0 —
@@ -39,9 +86,7 @@ export function parsePrice(rawPrice: unknown, rawCurrency: unknown): ParsedPrice
 	if (typeof rawPrice === 'number' && Number.isFinite(rawPrice)) {
 		amount = rawPrice
 	} else if (typeof rawPrice === 'string') {
-		const cleaned = rawPrice.replace(/\s/g, '').replace(',', '.')
-		const parsed = Number(cleaned)
-		amount = Number.isFinite(parsed) ? parsed : null
+		amount = parseAmountFromString(rawPrice)
 	}
 
 	const currency = normalizeWhitespace(rawCurrency)

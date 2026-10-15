@@ -52,6 +52,26 @@ describe('parsePrice', () => {
 		const result = parsePrice('call for price', 'MDL')
 		expect(result.amount).toBeNull()
 	})
+
+	test('handles European-style thousands separator with a decimal comma', () => {
+		expect(parsePrice('1.234,56', 'MDL').amount).toBe(1234.56)
+	})
+
+	test('handles US-style thousands separator with a decimal dot', () => {
+		expect(parsePrice('1,234.56', 'MDL').amount).toBe(1234.56)
+	})
+
+	test('strips trailing currency text embedded in the price string itself', () => {
+		expect(parsePrice('289.00 MDL', null).amount).toBe(289)
+	})
+
+	test('strips leading currency text embedded in the price string itself', () => {
+		expect(parsePrice('MDL 289.00', null).amount).toBe(289)
+	})
+
+	test('handles surrounding whitespace', () => {
+		expect(parsePrice('  99,00  ', 'MDL').amount).toBe(99)
+	})
 })
 
 describe('normalizeAvailability', () => {

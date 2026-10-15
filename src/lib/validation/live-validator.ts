@@ -135,7 +135,8 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 				httpStatus: null,
 				errorMessage: 'Disallowed by robots.txt for this user-agent',
 				extracted: null,
-				missingFields: []
+				missingFields: [],
+				conflicts: []
 			})
 			continue
 		}
@@ -153,7 +154,8 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 				httpStatus: null,
 				errorMessage: cause instanceof Error ? cause.message : String(cause),
 				extracted: null,
-				missingFields: []
+				missingFields: [],
+				conflicts: []
 			})
 			continue
 		}
@@ -166,7 +168,8 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 				httpStatus: httpResult.status,
 				errorMessage: `HTTP ${httpResult.status}`,
 				extracted: null,
-				missingFields: []
+				missingFields: [],
+				conflicts: []
 			})
 			continue
 		}
@@ -176,7 +179,8 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 		const extraction = extractProductsFromHtml(url, httpResult.body)
 		if (extraction.products.length > 0) {
 			extractedCount++
-			const summary = buildExtractedSummary(extraction.products[0])
+			const product = extraction.products[0]
+			const summary = buildExtractedSummary(product)
 			results.push({
 				url,
 				language,
@@ -184,7 +188,9 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 				httpStatus: httpResult.status,
 				errorMessage: null,
 				extracted: summary,
-				missingFields: computeMissingFields(summary)
+				missingFields: computeMissingFields(summary),
+				fieldProvenance: product.fieldProvenance,
+				conflicts: product.conflicts ?? []
 			})
 		} else {
 			const failure = extraction.failures[0]
@@ -195,7 +201,8 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 				httpStatus: httpResult.status,
 				errorMessage: failure?.message ?? 'No product extracted and no failure reported',
 				extracted: null,
-				missingFields: []
+				missingFields: [],
+				conflicts: []
 			})
 		}
 	}

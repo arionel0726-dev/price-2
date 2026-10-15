@@ -1,3 +1,5 @@
+import type { FieldConflict, FieldSource } from '../lib/scraping/types'
+
 export type PageOutcome =
 	| 'extracted'
 	| 'network_failure'
@@ -30,6 +32,15 @@ export interface PageResult {
 	extracted: ExtractedFieldsSummary | null
 	/** Tracked fields that were absent/null for this page. Empty when `outcome` is not 'extracted'. */
 	missingFields: TrackedField[]
+	/**
+	 * Where each present field's value came from (json_ld / html_attribute /
+	 * title / missing) — see src/lib/scraping/extract.ts. Optional/additive:
+	 * only populated when `outcome` is 'extracted'; existing report
+	 * consumers that don't read it are unaffected.
+	 */
+	fieldProvenance?: Partial<Record<TrackedField, FieldSource>>
+	/** JSON-LD vs. HTML-fallback disagreements for this page, if any (never silently resolved — see extract.ts). Empty when there were none. */
+	conflicts: FieldConflict[]
 }
 
 export interface ValidateLiveReport {
