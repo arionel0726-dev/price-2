@@ -1,4 +1,7 @@
-export type Availability = 'in_stock' | 'out_of_stock' | 'preorder' | 'unknown'
+/** Single source of truth for the normalized availability states, reused by the Zod schema and the Postgres enum. */
+export const AVAILABILITY_VALUES = ['in_stock', 'out_of_stock', 'preorder', 'unknown'] as const
+
+export type Availability = (typeof AVAILABILITY_VALUES)[number]
 
 /** Collapses internal whitespace/newlines and trims. Returns null for empty/non-string input. */
 export function normalizeWhitespace(value: unknown): string | null {

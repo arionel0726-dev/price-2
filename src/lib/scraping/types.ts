@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AVAILABILITY_VALUES } from '../normalize/normalize'
 
 export const NormalizedProductRecordSchema = z.object({
 	sourceUrl: z.url(),
@@ -23,7 +24,7 @@ export const NormalizedProductRecordSchema = z.object({
 	}),
 	availability: z.object({
 		raw: z.unknown().nullable(),
-		normalized: z.enum(['in_stock', 'out_of_stock', 'preorder', 'unknown']).nullable()
+		normalized: z.enum(AVAILABILITY_VALUES).nullable()
 	}),
 	/** Preserves the untouched JSON-LD node this record was built from, for audit/debugging. */
 	rawJsonLd: z.record(z.string(), z.unknown())

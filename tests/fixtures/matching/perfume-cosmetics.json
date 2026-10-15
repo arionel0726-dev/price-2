@@ -1,0 +1,49 @@
+{
+	"description": "Synthetic cosmetics/perfume catalog pairs for offline matching evaluation. Fictional brands and GTINs — not real product data. Ground-truth labels are hand-authored for this fixture only; see AGENTS.md/Task 3 delivery notes for why this cannot establish real-world accuracy.",
+	"ownListings": [
+		{ "id": "own-01", "sourceTitle": "Vizaje Aurelia Rose Eau de Parfum 50ml", "normalizedTitle": "Vizaje Aurelia Rose Eau de Parfum 50ml", "brand": "Vizaje", "sku": "VZ-AUR-ROSE-50", "gtin": null, "variant": "50ml" },
+		{ "id": "own-02", "sourceTitle": "Vizaje Cassian Noir EDP 100ml", "normalizedTitle": "Vizaje Cassian Noir EDP 100ml", "brand": "Vizaje", "sku": "VZ-CAS-NOIR-100", "gtin": null, "variant": "100ml" },
+		{ "id": "own-03", "sourceTitle": "Vizaje NordBloom Eau de Parfum 30ml", "normalizedTitle": "Vizaje NordBloom Eau de Parfum 30ml", "brand": "Vizaje", "sku": "VZ-NB-30", "gtin": null, "variant": "30ml" },
+		{ "id": "own-04", "sourceTitle": "Vizaje NordBloom Eau de Parfum 50ml", "normalizedTitle": "Vizaje NordBloom Eau de Parfum 50ml", "brand": "Vizaje", "sku": "VZ-NB-50", "gtin": null, "variant": "50ml" },
+		{ "id": "own-05", "sourceTitle": "Vizaje NordBloom Eau de Parfum Refill 50ml", "normalizedTitle": "Vizaje NordBloom Eau de Parfum Refill 50ml", "brand": "Vizaje", "sku": "VZ-NB-50-R", "gtin": null, "variant": "50ml" },
+		{ "id": "own-06", "sourceTitle": "Vizaje Velvet Matte Lipstick Shade 01", "normalizedTitle": "Vizaje Velvet Matte Lipstick Shade 01", "brand": "Vizaje", "sku": "VZ-LIP-01", "gtin": null, "variant": null },
+		{ "id": "own-07", "sourceTitle": "Vizaje Aurelia Gift Set (EDP 50ml + Body Lotion)", "normalizedTitle": "Vizaje Aurelia Gift Set (EDP 50ml + Body Lotion)", "brand": "Vizaje", "sku": "VZ-AUR-SET", "gtin": "5901234123457", "variant": null },
+		{ "id": "own-08", "sourceTitle": "Vizaje Sandglow Body Lotion 200ml", "normalizedTitle": "Vizaje Sandglow Body Lotion 200ml", "brand": "Vizaje", "sku": "VZ-SAND-LOT-200", "gtin": null, "variant": "200ml" },
+		{ "id": "own-09", "sourceTitle": "Vizaje Petale Eau de Parfum 50ml", "normalizedTitle": "Vizaje Petale Eau de Parfum 50ml", "brand": "Vizaje", "sku": "VZ-PET-50", "gtin": "4006381333931", "variant": "50ml" },
+		{ "id": "own-10", "sourceTitle": "Vizaje Aurelia Rose Eau de Parfum 50ml", "normalizedTitle": "Vizaje Aurelia Rose Eau de Parfum 50ml", "brand": "Vizaje", "sku": "VZ-AUR-ROSE-50-ALT", "gtin": null, "variant": "50ml" },
+		{ "id": "own-11", "sourceTitle": "Vizaje Aurelia Rose Body Mist 50ml", "normalizedTitle": "Vizaje Aurelia Rose Body Mist 50ml", "brand": "Vizaje", "sku": "VZ-AUR-MIST-50", "gtin": null, "variant": "50ml" },
+		{ "id": "own-12", "sourceTitle": "Vizaje Cassian Noir EDP 100ml", "normalizedTitle": "Vizaje Cassian Noir EDP 100ml", "brand": null, "sku": "VZ-CAS-NOIR-100-NOBRAND", "gtin": null, "variant": "100ml" }
+	],
+	"competitorListings": [
+		{ "id": "comp-01", "sourceTitle": "Aurelia Rose EDP 50 ml — Vizaje", "normalizedTitle": "Aurelia Rose EDP 50 ml — Vizaje", "brand": "Vizaje", "sku": "COMPETITOR-AUR-50", "gtin": null, "variant": "50ml" },
+		{ "id": "comp-02", "sourceTitle": "Казан Нуар О Де Парфюм 100мл (Vizaje)", "normalizedTitle": "Кассиан Нуар EDP 100ml", "brand": "Визаже", "sku": "RU-CAS-100", "gtin": null, "variant": "100ml" },
+		{ "id": "comp-03", "sourceTitle": "NordBloom Eau de Toilette 30ml", "normalizedTitle": "NordBloom Eau de Toilette 30ml", "brand": "Vizaje", "sku": "COMP-NB-EDT-30", "gtin": null, "variant": "30ml" },
+		{ "id": "comp-04", "sourceTitle": "NordBloom Eau de Parfum 100ml", "normalizedTitle": "NordBloom Eau de Parfum 100ml", "brand": "Vizaje", "sku": "COMP-NB-100", "gtin": null, "variant": "100ml" },
+		{ "id": "comp-05", "sourceTitle": "NordBloom Eau de Parfum Standard Bottle 50ml", "normalizedTitle": "NordBloom Eau de Parfum Standard Bottle 50ml", "brand": "Vizaje", "sku": "COMP-NB-50-STD", "gtin": null, "variant": "50ml" },
+		{ "id": "comp-06", "sourceTitle": "Velvet Matte Lipstick Shade 02", "normalizedTitle": "Velvet Matte Lipstick Shade 02", "brand": "Vizaje", "sku": "COMP-LIP-02", "gtin": null, "variant": null },
+		{ "id": "comp-07", "sourceTitle": "Vizaje Aurelia EDP 50ml (single bottle)", "normalizedTitle": "Vizaje Aurelia EDP 50ml (single bottle)", "brand": "Vizaje", "sku": "COMP-AUR-SINGLE", "gtin": "9999999999992", "variant": "50ml" },
+		{ "id": "comp-08", "sourceTitle": "Sandglow Body Lotion 200ml", "normalizedTitle": "Sandglow Body Lotion 200ml", "brand": "Vizaje", "sku": "COMP-SAND-200", "gtin": null, "variant": "200ml" },
+		{ "id": "comp-09", "sourceTitle": "Petale Eau de Parfum 50ml", "normalizedTitle": "Petale Eau de Parfum 50ml", "brand": "Vizaje", "sku": "COMP-PET-50", "gtin": "4006381333931", "variant": "50ml" },
+		{ "id": "comp-10", "sourceTitle": "Aurelia Rose Perfume 50ml", "normalizedTitle": "Aurelia Rose Perfume 50ml", "brand": "Vizaje", "sku": "COMP-AUR-ALT2", "gtin": null, "variant": "50ml" },
+		{ "id": "comp-11", "sourceTitle": "Aurelia Rose Hair Mist 50ml", "normalizedTitle": "Aurelia Rose Hair Mist 50ml", "brand": "Vizaje", "sku": "COMP-AUR-HAIRMIST", "gtin": null, "variant": "50ml" }
+	],
+	"groundTruth": [
+		{ "ownId": "own-01", "competitorId": "comp-01", "label": "match", "category": "minor_spelling_and_token_order" },
+		{ "ownId": "own-02", "competitorId": "comp-02", "label": "match", "category": "brand_and_title_transliteration" },
+		{ "ownId": "own-03", "competitorId": "comp-03", "label": "no_match", "category": "edp_vs_edt" },
+		{ "ownId": "own-03", "competitorId": "comp-04", "label": "no_match", "category": "volume_conflict_30_vs_100" },
+		{ "ownId": "own-04", "competitorId": "comp-04", "label": "no_match", "category": "volume_conflict_50_vs_100" },
+		{ "ownId": "own-04", "competitorId": "comp-05", "label": "match", "category": "same_product_minor_catalog_noise" },
+		{ "ownId": "own-05", "competitorId": "comp-05", "label": "no_match", "category": "refill_vs_standard_bottle" },
+		{ "ownId": "own-06", "competitorId": "comp-06", "label": "no_match", "category": "different_shade" },
+		{ "ownId": "own-07", "competitorId": "comp-07", "label": "no_match", "category": "gift_set_vs_individual_conflicting_gtin_allowed" },
+		{ "ownId": "own-08", "competitorId": "comp-08", "label": "match", "category": "missing_gtin_both_sides_title_brand_volume_match" },
+		{ "ownId": "own-09", "competitorId": "comp-09", "label": "match", "category": "valid_gtin_match" },
+		{ "ownId": "own-07", "competitorId": "comp-09", "label": "no_match", "category": "conflicting_gtin_no_bundle_exception" },
+		{ "ownId": "own-10", "competitorId": "comp-10", "label": "match", "category": "same_product_slightly_different_name" },
+		{ "ownId": "own-11", "competitorId": "comp-11", "label": "match", "category": "same_product_missing_volume_na" },
+		{ "ownId": "own-12", "competitorId": "comp-02", "label": "match", "category": "missing_brand_on_own_side" },
+		{ "ownId": "own-01", "competitorId": "comp-10", "label": "ambiguous", "category": "multiple_plausible_candidates_for_own_01" },
+		{ "ownId": "own-01", "competitorId": "comp-11", "label": "no_match", "category": "similar_name_different_product_hair_mist_vs_perfume" }
+	]
+}

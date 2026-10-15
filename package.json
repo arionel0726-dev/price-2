@@ -13,6 +13,8 @@
 		"worker:start": "tsx src/workers/index.ts",
 		"test": "bun test",
 		"discover": "bun run src/scripts/discover.ts",
+		"sync-catalog": "bun run src/scripts/sync-catalog.ts",
+		"match-catalog": "bun run src/scripts/match-catalog.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
