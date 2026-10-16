@@ -1,9 +1,12 @@
-import { describe, expect, test } from 'bun:test'
-import { main } from '../../src/scripts/validate-live'
+import { afterEach, describe, expect, test } from 'bun:test'
+import * as http from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { main, parseArgs, runLiveMode } from '../../src/scripts/validate-live'
 
 const MANIFEST_PATH = 'tests/fixtures/validate-live-ovico/manifest.json'
 const BROKEN_MANIFEST_PATH = 'tests/fixtures/validate-live-ovico/manifest-broken-sitemap.json'
 const MAGENTO_MANIFEST_PATH = 'tests/fixtures/validate-live-ovico/manifest-magento.json'
+const CATEGORY_PRECEDENCE_MANIFEST_PATH = 'tests/fixtures/validate-live-ovico/manifest-category-precedence.json'
 
 describe('validate-live CLI — ovico.md fixture mode (fully offline, unverified classifier)', () => {
 	test('discovers through the nested sitemap index and reproduces the exact fixture report', async () => {
@@ -185,4 +188,123 @@ describe('validate-live CLI — ovico.md Magento HTML fallback end-to-end (Task 
 		expect(report.outcomeCounts.access_restricted).toBe(0)
 		expect(report.outcomeCounts.missing_json_ld).toBe(0)
 	})
+
+	test('a genuine product page with real weak challenge-adjacent markers (captcha widget, cookie banner) is extracted normally end-to-end (follow-up review §2)', async () => {
+		const report = await main(['--domain', 'ovico.md', '--fixture-manifest', MAGENTO_MANIFEST_PATH])
+		const withBoilerplate = report.results.find((r) => r.url === 'https://ovico.md/ru/avignon-edt-50ml-vapo-boilerplate')
+		expect(withBoilerplate?.outcome).toBe('extracted')
+		expect(withBoilerplate?.extracted?.sku).toBe('OVC-AVG-50EDT')
+	})
+})
+
+describe('validate-live CLI — ovico.md category classification precedence end-to-end (Task 7.2)', () => {
+	test('a category page with weak challenge-adjacent boilerplate is reported non_product_page, never access_restricted', async () => {
+		const report = await main(['--domain', 'ovico.md', '--fixture-manifest', CATEGORY_PRECEDENCE_MANIFEST_PATH])
+
+		const category = report.results.find((r) => r.url === 'https://ovico.md/ru/sezonnye-tovary')
+		expect(category?.outcome).toBe('non_product_page')
+		expect(category?.extracted).toBeNull()
+		expect(report.outcomeCounts.access_restricted).toBe(0)
+	})
+
+	test('the confirmed category slug dekorativnaja-kosmetika is excluded at URL-classification time and never even fetched', async () => {
+		const report = await main(['--domain', 'ovico.md', '--fixture-manifest', CATEGORY_PRECEDENCE_MANIFEST_PATH])
+
+		expect(report.results.some((r) => r.url.includes('dekorativnaja-kosmetika'))).toBe(false)
+		expect(report.discovery.matchedProductUrlCount).toBe(1)
+	})
+})
+
+describe('validate-live CLI — explicit HTTP 401/403 access-denied responses are never treated as product content (follow-up review §1)', () => {
+	let server: http.Server | null = null
+
+	afterEach(async () => {
+		if (server) {
+			await new Promise<void>((resolve) => server!.close(() => resolve()))
+			server = null
+		}
+	})
+
+	test('a 403 "Access Denied" response is reported network_failure, never extracted, and its body is never parsed as product content', async () => {
+		const routes: Record<string, { status: number; body: string }> = {
+			'/robots.txt': { status: 200, body: 'User-agent: *\nAllow: /\n' }
+		}
+
+		server = http.createServer((req, res) => {
+			const path = req.url ?? '/'
+			if (path === '/ro/catalog/cat/9001') {
+				res.writeHead(403, { 'content-type': 'text/html' })
+				res.end('<html><body><h1>403 Forbidden</h1><p>Access Denied. You do not have permission to access this resource.</p></body></html>')
+				return
+			}
+			const route = routes[path]
+			if (!route) {
+				res.writeHead(404)
+				res.end()
+				return
+			}
+			res.writeHead(route.status, { 'content-type': 'text/plain' })
+			res.end(route.body)
+		})
+
+		await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', () => resolve()))
+		const { port } = server!.address() as AddressInfo
+		const domain = `127.0.0.1:${port}`
+		routes['/sitemap.xml'] = {
+			status: 200,
+			body:
+				'<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+				`<url><loc>http://${domain}/ro/catalog/cat/9001</loc></url>` +
+				'</urlset>'
+		}
+
+		const args = parseArgs(['--domain', domain, '--live', '--delay-ms', '1000'])
+		const report = await runLiveMode(args, { allowlist: new Set([domain]), allowPrivateNetworks: true, protocol: 'http' })
+
+		expect(report.results[0].outcome).toBe('network_failure')
+		expect(report.results[0].httpStatus).toBe(403)
+		expect(report.results[0].extracted).toBeNull()
+		expect(report.outcomeCounts.extracted).toBe(0)
+	}, 15_000)
+
+	test('a 401 "Unauthorized" response is likewise reported network_failure, never extracted', async () => {
+		const routes: Record<string, { status: number; body: string }> = {
+			'/robots.txt': { status: 200, body: 'User-agent: *\nAllow: /\n' }
+		}
+
+		server = http.createServer((req, res) => {
+			const path = req.url ?? '/'
+			if (path === '/ro/catalog/cat/9001') {
+				res.writeHead(401, { 'content-type': 'text/html' })
+				res.end('<html><body><h1>401 Unauthorized</h1></body></html>')
+				return
+			}
+			const route = routes[path]
+			if (!route) {
+				res.writeHead(404)
+				res.end()
+				return
+			}
+			res.writeHead(route.status, { 'content-type': 'text/plain' })
+			res.end(route.body)
+		})
+
+		await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', () => resolve()))
+		const { port } = server!.address() as AddressInfo
+		const domain = `127.0.0.1:${port}`
+		routes['/sitemap.xml'] = {
+			status: 200,
+			body:
+				'<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+				`<url><loc>http://${domain}/ro/catalog/cat/9001</loc></url>` +
+				'</urlset>'
+		}
+
+		const args = parseArgs(['--domain', domain, '--live', '--delay-ms', '1000'])
+		const report = await runLiveMode(args, { allowlist: new Set([domain]), allowPrivateNetworks: true, protocol: 'http' })
+
+		expect(report.results[0].outcome).toBe('network_failure')
+		expect(report.results[0].httpStatus).toBe(401)
+		expect(report.results[0].extracted).toBeNull()
+	}, 15_000)
 })

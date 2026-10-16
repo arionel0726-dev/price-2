@@ -108,3 +108,17 @@ describe('ovicoMdStoreProfile.dedupeProductUrls — conservative canonicalizatio
 		expect(dedupeProductUrls(['not a url', 'https://ovico.md/ru/jo-malone-london-pine-eucalyptus-diffuser-165ml'])).toHaveLength(1)
 	})
 })
+
+describe('ovicoMdStoreProfile.classifyProductUrl — confirmed category slugs are excluded by evidence, not by a guessed pattern (Task 7.2)', () => {
+	test('excludes the confirmed real category URL dekorativnaja-kosmetika', () => {
+		expect(classifyProductUrl('https://ovico.md/ru/dekorativnaja-kosmetika')).toBeNull()
+	})
+
+	test('excludes the /ro/ variant of the same confirmed category slug too', () => {
+		expect(classifyProductUrl('https://ovico.md/ro/dekorativnaja-kosmetika')).toBeNull()
+	})
+
+	test('does NOT exclude an unrelated slug merely for sharing a substring with a confirmed category slug (exact match only, no invented prefix/suffix rule)', () => {
+		expect(classifyProductUrl('https://ovico.md/ru/dekorativnaja-kosmetika-set-50ml')).not.toBeNull()
+	})
+})

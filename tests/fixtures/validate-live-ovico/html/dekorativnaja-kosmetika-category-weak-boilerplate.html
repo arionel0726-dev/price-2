@@ -1,0 +1,50 @@
+<!doctype html>
+<!--
+	Same genuine category page as dekorativnaja-kosmetika-category.html, but
+	with realistic ordinary page boilerplate that happens to contain WEAK
+	challenge-adjacent phrases (Task 7.2): a reCAPTCHA widget on a footer
+	newsletter form, a GDPR cookie-consent banner, and a script loaded from
+	a cloudflare.com CDN host. None of this means the page is a WAF/CAPTCHA
+	challenge — it is an entirely ordinary, genuine Magento category page.
+-->
+<html lang="ru">
+<head>
+	<meta charset="utf-8" />
+	<title>Декоративная косметика</title>
+	<script type="application/ld+json">
+	{
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		"itemListElement": [
+			{ "@type": "ListItem", "position": 1, "name": "Главная", "item": "https://ovico.md/ru" },
+			{ "@type": "ListItem", "position": 2, "name": "Декоративная косметика", "item": "https://ovico.md/ru/dekorativnaja-kosmetika" }
+		]
+	}
+	</script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+</head>
+<body class="catalog-category-view">
+	<main>
+		<h1>Декоративная косметика</h1>
+		<div class="products-grid">
+			<div class="product-item"><a href="/ru/product-1-10ml">Тушь 1</a></div>
+			<div class="product-item"><a href="/ru/product-2-10ml">Тушь 2</a></div>
+			<div class="product-item"><a href="/ru/product-3-10ml">Помада 1</a></div>
+			<div class="product-item"><a href="/ru/product-4-10ml">Помада 2</a></div>
+			<div class="product-item"><a href="/ru/product-5-10ml">Тональный крем 1</a></div>
+			<div class="product-item"><a href="/ru/product-6-10ml">Тональный крем 2</a></div>
+		</div>
+	</main>
+	<footer>
+		<form class="newsletter-subscribe">
+			<label>Подпишитесь на новости</label>
+			<input type="email" name="email" />
+			<div class="g-recaptcha" data-sitekey="sanitized-placeholder-sitekey"></div>
+			<button type="submit">Подписаться</button>
+		</form>
+		<div class="cookie-consent-banner">
+			<p>Этот сайт использует cookies. Чтобы продолжить, пожалуйста enable cookies in your browser settings.</p>
+		</div>
+	</footer>
+</body>
+</html>

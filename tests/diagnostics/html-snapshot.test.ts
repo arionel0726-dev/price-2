@@ -123,3 +123,68 @@ describe('classifyHtmlSnapshot — a genuine Magento product page is never miscl
 		expect(result.looksLikeChallengePage).toBe(false)
 	})
 })
+
+describe('classifyHtmlSnapshot — strong vs. weak challenge evidence (Task 7.2)', () => {
+	function loadOvico(name: string): string {
+		return readFileSync(`tests/fixtures/validate-live-ovico/html/${name}`, 'utf-8')
+	}
+
+	test('the real dekorativnaja-kosmetika category page (BreadcrumbList only, no Product, product grid) is NOT access-restricted', () => {
+		const result = classifyHtmlSnapshot(loadOvico('dekorativnaja-kosmetika-category.html'))
+		expect(result.looksLikeChallengePage).toBe(false)
+		expect(result.hasProductJsonLd).toBe(false)
+		expect(result.otherJsonLdTypes).toContain('BreadcrumbList')
+	})
+
+	test('the same category page with weak challenge-adjacent boilerplate (cloudflare CDN script, "enable cookies" banner) still reports hasWeakChallengeSignal=true but looksLikeChallengePage=false', () => {
+		const result = classifyHtmlSnapshot(loadOvico('dekorativnaja-kosmetika-category-weak-boilerplate.html'))
+		expect(result.hasWeakChallengeSignal).toBe(true)
+		expect(result.looksLikeChallengePage).toBe(false)
+	})
+
+	test('weak markers alone (no strong evidence) never set looksLikeChallengePage, for each weak marker individually', () => {
+		const weakOnlyBodies = [
+			'<script src="https://cdnjs.cloudflare.com/ajax/libs/foo/1.0/foo.js"></script>',
+			'<p>Access denied: this section requires staff sign-in.</p>',
+			'<p>Please solve the captcha below.</p>',
+			'<p>Please enable javascript for the best experience.</p>',
+			'<p>This site uses cookies. Please enable cookies to continue.</p>'
+		]
+		for (const body of weakOnlyBodies) {
+			const result = classifyHtmlSnapshot(`<html><body>${body}</body></html>`)
+			expect(result.hasWeakChallengeSignal).toBe(true)
+			expect(result.looksLikeChallengePage).toBe(false)
+		}
+	})
+
+	test('strong evidence still wins even when the page also contains confirmed Magento product-page markup (never suppressed by site-like structure)', () => {
+		const html =
+			'<html><body>' +
+			'<div class="product-page"><h1 class="product-page__details-name">Some Product</h1></div>' +
+			'<div>Checking your browser before accessing this site. Just a moment...</div>' +
+			'</body></html>'
+		const result = classifyHtmlSnapshot(html)
+		expect(result.looksLikeChallengePage).toBe(true)
+	})
+
+	test('a genuine PRODUCT page (not just a category page) with real weak markers (captcha widget, cookie banner) is still not access-restricted (follow-up review §2)', () => {
+		const result = classifyHtmlSnapshot(loadOvico('avignon-edt-50ml-vapo-weak-boilerplate.html'))
+		expect(result.hasWeakChallengeSignal).toBe(true)
+		expect(result.looksLikeChallengePage).toBe(false)
+	})
+
+	test('each strong marker alone is sufficient to set looksLikeChallengePage, independent of any weak marker', () => {
+		const strongBodies = [
+			'<p>Just a moment...</p>',
+			'<p>Checking your browser before accessing the site.</p>',
+			'<p>Attention Required! | Cloudflare</p>',
+			'<p>Please verify you are human to continue.</p>',
+			'<p>Are you a human? Confirm below.</p>',
+			'<p>Our systems have detected unusual traffic from your network.</p>'
+		]
+		for (const body of strongBodies) {
+			const result = classifyHtmlSnapshot(`<html><body>${body}</body></html>`)
+			expect(result.looksLikeChallengePage).toBe(true)
+		}
+	})
+})

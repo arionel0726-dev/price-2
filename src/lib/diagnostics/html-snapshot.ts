@@ -26,7 +26,15 @@ export interface HtmlSnapshotClassification {
 	jsonLdParseFailureCount: number
 	/** @type values found in JSON-LD on this page, other than "Product" (e.g. "CollectionPage", "BreadcrumbList"). */
 	otherJsonLdTypes: string[]
-	/** True when ANY challenge marker matched — generic or AWS-WAF-specific. See `looksLikeAwsWafChallenge` to tell which. */
+	/**
+	 * True when STRONG challenge evidence matched — a confirmed AWS WAF
+	 * marker, or one of the generic phrases specific enough that an ordinary
+	 * page is very unlikely to contain it by coincidence (see
+	 * STRONG_CHALLENGE_MARKERS below). This is the ONLY signal callers (see
+	 * src/lib/validation/live-validator.ts) should treat as grounds for an
+	 * access_restricted outcome — see `hasWeakChallengeSignal` for why weak
+	 * matches must not gate that decision on their own (Task 7.2).
+	 */
 	looksLikeChallengePage: boolean
 	/**
 	 * True specifically when one of the confirmed AWS WAF JavaScript-challenge
@@ -36,25 +44,61 @@ export interface HtmlSnapshotClassification {
 	 * missed.
 	 */
 	looksLikeAwsWafChallenge: boolean
+	/**
+	 * True when a WEAK challenge-adjacent phrase matched (see
+	 * WEAK_CHALLENGE_MARKERS below) — wording that commonly appears in
+	 * ordinary e-commerce boilerplate unrelated to any access restriction
+	 * (a reCAPTCHA widget on a contact/newsletter form, a GDPR cookie
+	 * banner, a CDN script loaded from a cloudflare.com URL, a standard
+	 * "enable JavaScript" noscript block). Reported for visibility only —
+	 * it deliberately does NOT set `looksLikeChallengePage` on its own
+	 * (Task 7.2 §1/§2): a real Magento category or product page containing
+	 * one of these phrases must not be misclassified as access-restricted.
+	 * Strong evidence (AWS WAF or STRONG_CHALLENGE_MARKERS) always still
+	 * wins regardless of this flag (Task 7.2 §3).
+	 */
+	hasWeakChallengeSignal: boolean
 	looksLikeCategoryPage: boolean
 	looksLikeJsEmptyShell: boolean
 	/** Human-readable explanations for every signal above, in the order they were detected. */
 	notes: string[]
 }
 
-const CHALLENGE_PAGE_MARKERS = [
+/**
+ * High-confidence challenge phrasing: specific enough that an ordinary
+ * e-commerce page is very unlikely to contain any of these by coincidence.
+ * Matching ANY of these (or an AWS WAF marker) is sufficient on its own to
+ * classify a response as access-restricted.
+ */
+const STRONG_CHALLENGE_MARKERS = [
 	/just a moment/i,
 	/checking your browser/i,
 	/attention required/i,
-	/cloudflare/i,
 	/are you (a )?human/i,
-	/access denied/i,
-	/\bcaptcha\b/i,
-	/please enable javascript/i,
-	/enable cookies/i,
 	/unusual traffic/i,
 	/verify you are human/i
 ]
+
+/**
+ * Weak, challenge-ADJACENT phrasing that also shows up routinely in
+ * ordinary page boilerplate unrelated to any access restriction:
+ *   - "cloudflare": a legitimate page can load a script from a
+ *     cloudflare.com-hosted CDN (e.g. cdnjs.cloudflare.com), or simply
+ *     credit "Powered by Cloudflare" in a footer.
+ *   - "captcha": a reCAPTCHA widget on an ordinary contact/newsletter/login
+ *     form, present site-wide including on category and product pages.
+ *   - "access denied": can appear in unrelated permission-restricted
+ *     content (an admin-only section notice, a generic 403 page for a
+ *     different reason) that has nothing to do with bot detection.
+ *   - "please enable javascript" / "enable cookies": standard
+ *     <noscript>/cookie-consent-banner boilerplate found on many
+ *     completely ordinary sites (confirmed not to false-positive on a real
+ *     Magento product page's own noscript block — see
+ *     tests/diagnostics/html-snapshot.test.ts).
+ * These alone are NEVER sufficient to classify a page as access-restricted
+ * (see `hasWeakChallengeSignal`) — they are reported for visibility only.
+ */
+const WEAK_CHALLENGE_MARKERS = [/cloudflare/i, /access denied/i, /\bcaptcha\b/i, /please enable javascript/i, /enable cookies/i]
 
 /**
  * Confirmed AWS WAF JavaScript-challenge markers, taken from real makeup.md
@@ -104,7 +148,9 @@ export function classifyHtmlSnapshot(html: string): HtmlSnapshotClassification {
 	const otherJsonLdTypes = collectJsonLdTypes(nodes)
 
 	const looksLikeAwsWafChallenge = AWS_WAF_CHALLENGE_MARKERS.some((pattern) => pattern.test(html))
-	const looksLikeChallengePage = looksLikeAwsWafChallenge || CHALLENGE_PAGE_MARKERS.some((pattern) => pattern.test(html))
+	const hasStrongGenericChallengeSignal = STRONG_CHALLENGE_MARKERS.some((pattern) => pattern.test(html))
+	const hasWeakChallengeSignal = WEAK_CHALLENGE_MARKERS.some((pattern) => pattern.test(html))
+	const looksLikeChallengePage = looksLikeAwsWafChallenge || hasStrongGenericChallengeSignal
 
 	const $ = cheerio.load(html)
 	const bodyText = $('body').text().replace(/\s+/g, ' ').trim()
@@ -136,8 +182,15 @@ export function classifyHtmlSnapshot(html: string): HtmlSnapshotClassification {
 			'Detected confirmed AWS WAF JavaScript-challenge markers (awsWafCookieDomainList/gokuProps/token.awswaf.com/challenge.js/' +
 				'challenge-container/AwsWafIntegration.getToken()) — this is an access-restricted response, not a product page.'
 		)
-	} else if (looksLikeChallengePage) {
-		notes.push('Page text matches known bot-challenge/CAPTCHA/access-restriction phrasing.')
+	} else if (hasStrongGenericChallengeSignal) {
+		notes.push('Page text matches high-confidence bot-challenge phrasing (e.g. "just a moment", "checking your browser", "verify you are human").')
+	}
+	if (hasWeakChallengeSignal) {
+		notes.push(
+			'Page text contains a weak challenge-adjacent phrase (cloudflare/captcha/access denied/enable JavaScript or cookies) — ' +
+				'common in ordinary page boilerplate (CDN scripts, consent banners, contact-form widgets) and NOT by itself treated as ' +
+				'access-restriction evidence; see looksLikeChallengePage for the actual (strong-evidence-only) verdict.'
+		)
 	}
 	if (looksLikeJsEmptyShell) {
 		notes.push(
@@ -159,6 +212,7 @@ export function classifyHtmlSnapshot(html: string): HtmlSnapshotClassification {
 		otherJsonLdTypes,
 		looksLikeChallengePage,
 		looksLikeAwsWafChallenge,
+		hasWeakChallengeSignal,
 		looksLikeCategoryPage,
 		looksLikeJsEmptyShell,
 		notes

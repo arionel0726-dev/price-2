@@ -46,6 +46,14 @@ describe('classifyAndExtractOvicoHtml — confirmed Magento selectors only (Task
 		expect(result.record.fieldProvenance?.currency).toBe('missing')
 	})
 
+	test('still extracts a genuine product normally when real weak markers (captcha widget, cookie banner) are present (follow-up review §2)', () => {
+		const result = classifyAndExtractOvicoHtml(SOURCE_URL, load('avignon-edt-50ml-vapo-weak-boilerplate.html'))
+		expect(result?.kind).toBe('product')
+		if (result?.kind !== 'product' || !result.record) throw new Error('expected a product record')
+		expect(result.record.title.normalized).toBe('Avignon EDT 50ml Vapo')
+		expect(result.record.sku).toBe('OVC-AVG-50EDT')
+	})
+
 	test('detects the confirmed "not available" marker and reports out_of_stock', () => {
 		const result = classifyAndExtractOvicoHtml(SOURCE_URL, load('avignon-edt-100ml-vapo-unavailable.html'))
 		if (result?.kind !== 'product' || !result.record) throw new Error('expected a product record')
@@ -65,6 +73,26 @@ describe('classifyAndExtractOvicoHtml — confirmed Magento selectors only (Task
 
 	test('returns null (defers to the generic pipeline) for HTML matching neither confirmed structural marker', () => {
 		const result = classifyAndExtractOvicoHtml(SOURCE_URL, '<html><body><p>Unrelated page</p></body></html>')
+		expect(result).toBeNull()
+	})
+})
+
+describe('classifyAndExtractOvicoHtml — dekorativnaja-kosmetika and weak-boilerplate category pages (Task 7.2)', () => {
+	test('the real dekorativnaja-kosmetika category page is classified as non_product (structural, not URL-based)', () => {
+		const result = classifyAndExtractOvicoHtml('https://ovico.md/ru/dekorativnaja-kosmetika', load('dekorativnaja-kosmetika-category.html'))
+		expect(result).toEqual({ kind: 'non_product' })
+	})
+
+	test('the same category page with weak challenge-adjacent boilerplate is STILL classified as non_product, never as a product and never suppressed', () => {
+		const result = classifyAndExtractOvicoHtml(
+			'https://ovico.md/ru/dekorativnaja-kosmetika',
+			load('dekorativnaja-kosmetika-category-weak-boilerplate.html')
+		)
+		expect(result).toEqual({ kind: 'non_product' })
+	})
+
+	test('a genuinely ambiguous flat-slug page (no product container, no product grid) defers rather than guessing', () => {
+		const result = classifyAndExtractOvicoHtml('https://ovico.md/ru/dostavka', load('ambiguous-flat-slug.html'))
 		expect(result).toBeNull()
 	})
 })

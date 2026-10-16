@@ -56,8 +56,23 @@ const DENYLISTED_SLUG_PREFIXES = [
 	'page'
 ]
 
+// Exact slugs CONFIRMED (via real live-validation diagnostics, not a
+// guessed pattern) to be Magento category pages, not products — e.g.
+// https://ovico.md/ru/dekorativnaja-kosmetika (Task 7.2: JSON-LD carried
+// only BreadcrumbList, no Product; structural check found a product grid,
+// not a product-page container). Deliberately an exact-match list, never a
+// prefix/suffix/substring rule: we have no evidence that e.g. every slug
+// ending in "-kosmetika" is a category, and inventing that rule would be
+// exactly the kind of speculative general rule Task 7.2 §5 prohibits.
+const CONFIRMED_CATEGORY_SLUGS = new Set(['dekorativnaja-kosmetika'])
+
 function isDenylistedSlug(slug: string): string | null {
 	const normalized = slug.toLowerCase()
+
+	if (CONFIRMED_CATEGORY_SLUGS.has(normalized)) {
+		return `slug is a confirmed Magento category page (verified via live-validation diagnostics, not a pattern guess)`
+	}
+
 	const matched = DENYLISTED_SLUG_PREFIXES.find((prefix) => normalized === prefix || normalized.startsWith(`${prefix}-`))
 	return matched ? `slug starts with the known non-product section "${matched}"` : null
 }

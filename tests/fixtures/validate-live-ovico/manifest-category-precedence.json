@@ -1,0 +1,10 @@
+{
+	"sitemapUrl": "https://ovico.md/media/sitemap/sitemap_index.xml",
+	"sitemapFixture": "tests/fixtures/validate-live-ovico/sitemaps/sitemap-category-precedence.xml",
+	"robotsUrl": "https://ovico.md/robots.txt",
+	"robotsFixture": "tests/fixtures/validate-live-ovico/robots.txt",
+	"pageFixtures": {
+		"https://ovico.md/ru/sezonnye-tovary": "tests/fixtures/validate-live-ovico/html/dekorativnaja-kosmetika-category-weak-boilerplate.html",
+		"https://ovico.md/ru/dekorativnaja-kosmetika": "tests/fixtures/validate-live-ovico/html/dekorativnaja-kosmetika-category.html"
+	}
+}
