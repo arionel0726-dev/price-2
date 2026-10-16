@@ -33,7 +33,8 @@ export interface ValidateLiveCoreOptions {
 	mode: 'fixture' | 'live'
 	requestedSampleSize: number
 	userAgent: string
-	sitemapEntryUrl: string
+	/** Required unless `explicitUrl` is set — sitemap discovery is skipped entirely in that mode (Task 7.3 §9). */
+	sitemapEntryUrl?: string
 	robotsUrl: string
 	/** Fetches a URL and returns its status + body. Used uniformly for robots.txt and product pages — fixture mode reads files, live mode wraps safeFetch + a DomainScheduler (see src/scripts/validate-live.ts). */
 	fetchText: (url: string) => Promise<RobotsPageFetch>
@@ -64,6 +65,21 @@ export interface ValidateLiveCoreOptions {
 	 * behavior for existing callers/tests.
 	 */
 	storeProfile?: StoreProfile
+	/**
+	 * Validate exactly this one URL instead of discovering candidates from a
+	 * sitemap (Task 7.3). The caller (src/scripts/validate-live.ts) is
+	 * responsible for confirming, before setting this, that the URL:
+	 *   - is a well-formed absolute URL using the expected scheme, with no
+	 *     credentials or fragment;
+	 *   - belongs to exactly `domain`;
+	 *   - is classified as a product candidate by
+	 *     `storeProfile.classifyProductUrl` (never a category/search/account/
+	 *     checkout URL).
+	 * Sitemap discovery is skipped entirely; the report's `discovery` section
+	 * reports status 'skipped' with zeroed sitemap stats, and
+	 * `effectiveSampleSize` is always 1.
+	 */
+	explicitUrl?: string
 }
 
 function clampSampleSize(requested: number): number {
@@ -118,8 +134,10 @@ async function fetchSitemapAdapter(url: string, fetchText: ValidateLiveCoreOptio
  * caller's responsibility, keeping this pipeline fully testable offline.
  */
 export async function validateLiveDomain(options: ValidateLiveCoreOptions): Promise<ValidateLiveReport> {
-	const effectiveSampleSize = clampSampleSize(options.requestedSampleSize)
 	const storeProfile = options.storeProfile ?? vizajeNicaStoreProfile
+	// An explicit URL always validates a sample of exactly one page — there is
+	// no sitemap-derived candidate set to clamp against --limit (Task 7.3 §9).
+	const effectiveSampleSize = options.explicitUrl ? 1 : clampSampleSize(options.requestedSampleSize)
 
 	const robots = await fetchRobotsRules(options.robotsUrl, options.fetchText)
 
@@ -135,7 +153,7 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 				totalSitemapUrls: 0,
 				matchedProductUrlCount: 0,
 				afterLanguageDedupeCount: 0,
-				status: 'ok',
+				status: options.explicitUrl ? 'skipped' : 'ok',
 				sitemapDiagnostics: [],
 				sitemapsAttempted: 0,
 				sitemapsFailed: 0,
@@ -152,34 +170,69 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 
 	options.onRobotsLoaded?.(robots.rules)
 
-	const discovery = await discoverSitemapUrls([options.sitemapEntryUrl], {
-		fetchSitemap: (url) => fetchSitemapAdapter(url, options.fetchSitemapText ?? options.fetchText),
-		maxUrls: options.maxSitemapUrls ?? DEFAULT_SITEMAP_URL_LIMIT
-	})
+	let sample: string[]
+	let discoveryReport: ValidateLiveReport['discovery']
 
-	const sitemapFailureCount = discovery.diagnostics.filter((d) => SITEMAP_FAILURE_ISSUES.has(d.issue)).length
+	if (options.explicitUrl) {
+		// Task 7.3 §9: sitemap discovery is skipped entirely — the caller has
+		// already confirmed this one URL is a classified product candidate
+		// belonging to `domain` (see ValidateLiveCoreOptions.explicitUrl).
+		sample = [options.explicitUrl]
+		discoveryReport = {
+			totalSitemapUrls: 0,
+			matchedProductUrlCount: 1,
+			afterLanguageDedupeCount: 1,
+			status: 'skipped',
+			sitemapDiagnostics: [],
+			sitemapsAttempted: 0,
+			sitemapsFailed: 0,
+			truncated: false
+		}
+	} else {
+		if (!options.sitemapEntryUrl) {
+			throw new Error('sitemapEntryUrl is required when explicitUrl is not set')
+		}
 
-	// Distinguishes three states rather than a binary ok/failed (Task 6.1 §5):
-	//   - 'discovery_failed': nothing was discovered AND something went wrong —
-	//     never silently reported as "the store simply has no products".
-	//   - 'partial': some URLs WERE discovered, but at least one sitemap file
-	//     failed to fetch/parse, or a bound (maxUrls/maxSitemaps/maxDepth) was
-	//     reached — i.e. the picture is real but incomplete. Never collapsed
-	//     into 'ok', per Task 6.1's explicit "do not report discovery.status =
-	//     ok when important sitemap files failed".
-	//   - 'ok': every visited sitemap file was fetched and parsed successfully
-	//     and no bound was hit.
-	const discoveryStatus: 'ok' | 'partial' | 'discovery_failed' =
-		discovery.urls.length === 0 && discovery.diagnostics.length > 0
-			? 'discovery_failed'
-			: discovery.diagnostics.length > 0
-				? 'partial'
-				: 'ok'
+		const discovery = await discoverSitemapUrls([options.sitemapEntryUrl], {
+			fetchSitemap: (url) => fetchSitemapAdapter(url, options.fetchSitemapText ?? options.fetchText),
+			maxUrls: options.maxSitemapUrls ?? DEFAULT_SITEMAP_URL_LIMIT
+		})
 
-	const matchedUrls = discovery.urls.map((u) => u.url).filter((url) => storeProfile.classifyProductUrl(url) !== null)
-	const dedupedUrls = storeProfile.dedupeProductUrls(matchedUrls)
-	const sortedUrls = storeProfile.sortCandidates ? storeProfile.sortCandidates(dedupedUrls) : dedupedUrls
-	const sample = sortedUrls.slice(0, effectiveSampleSize)
+		const sitemapFailureCount = discovery.diagnostics.filter((d) => SITEMAP_FAILURE_ISSUES.has(d.issue)).length
+
+		// Distinguishes three states rather than a binary ok/failed (Task 6.1 §5):
+		//   - 'discovery_failed': nothing was discovered AND something went wrong —
+		//     never silently reported as "the store simply has no products".
+		//   - 'partial': some URLs WERE discovered, but at least one sitemap file
+		//     failed to fetch/parse, or a bound (maxUrls/maxSitemaps/maxDepth) was
+		//     reached — i.e. the picture is real but incomplete. Never collapsed
+		//     into 'ok', per Task 6.1's explicit "do not report discovery.status =
+		//     ok when important sitemap files failed".
+		//   - 'ok': every visited sitemap file was fetched and parsed successfully
+		//     and no bound was hit.
+		const discoveryStatus: 'ok' | 'partial' | 'discovery_failed' =
+			discovery.urls.length === 0 && discovery.diagnostics.length > 0
+				? 'discovery_failed'
+				: discovery.diagnostics.length > 0
+					? 'partial'
+					: 'ok'
+
+		const matchedUrls = discovery.urls.map((u) => u.url).filter((url) => storeProfile.classifyProductUrl(url) !== null)
+		const dedupedUrls = storeProfile.dedupeProductUrls(matchedUrls)
+		const sortedUrls = storeProfile.sortCandidates ? storeProfile.sortCandidates(dedupedUrls) : dedupedUrls
+		sample = sortedUrls.slice(0, effectiveSampleSize)
+
+		discoveryReport = {
+			totalSitemapUrls: discovery.urls.length,
+			matchedProductUrlCount: matchedUrls.length,
+			afterLanguageDedupeCount: dedupedUrls.length,
+			status: discoveryStatus,
+			sitemapDiagnostics: discovery.diagnostics,
+			sitemapsAttempted: discovery.sitemapsVisited.length,
+			sitemapsFailed: sitemapFailureCount,
+			truncated: discovery.truncated
+		}
+	}
 
 	// Reports exactly the URLs about to be fetched, and *why* each one was
 	// classified as a candidate — never conflated with "confirmed product
@@ -371,16 +424,7 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 		requestedSampleSize: options.requestedSampleSize,
 		effectiveSampleSize,
 		robots: { status: 'fetched', failedClosed: false, reason: null },
-		discovery: {
-			totalSitemapUrls: discovery.urls.length,
-			matchedProductUrlCount: matchedUrls.length,
-			afterLanguageDedupeCount: dedupedUrls.length,
-			status: discoveryStatus,
-			sitemapDiagnostics: discovery.diagnostics,
-			sitemapsAttempted: discovery.sitemapsVisited.length,
-			sitemapsFailed: sitemapFailureCount,
-			truncated: discovery.truncated
-		},
+		discovery: discoveryReport,
 		pages: { attempted, fetchedSuccessfully, extracted: extractedCount },
 		missingFieldCounts,
 		outcomeCounts,

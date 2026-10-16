@@ -22,6 +22,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { getStoreProfile } from '../lib/discovery/stores/registry'
+import type { StoreProfile } from '../lib/discovery/stores/types'
 import { vizajeNicaStoreProfile } from '../lib/discovery/stores/vizaje-nica'
 import { DisallowedRedirectError, isDomainAllowlistedForLiveValidation } from '../lib/net/allowlist'
 import { DomainScheduler } from '../lib/net/rate-limit'
@@ -70,6 +71,13 @@ export interface CliArgs {
 	delayMs: number
 	/** Overrides the store profile's default sitemap URL (see src/lib/discovery/stores/). Useful for makeup.md, whose advertised /sitemap/sitemap.xml location is an unconfirmed candidate. */
 	sitemapUrl?: string
+	/**
+	 * Validate exactly this one product page instead of sampling candidates
+	 * from the sitemap (Task 7.3). Must be an absolute HTTPS URL (the live
+	 * server's protocol in test mode — see LiveModeTestOverrides.protocol),
+	 * with no credentials or fragment, whose host exactly matches `domain`.
+	 */
+	url?: string
 }
 
 const DEFAULT_FIXTURE_MANIFEST_PATH = 'tests/fixtures/validate-live/manifest.json'
@@ -111,6 +119,9 @@ export function parseArgs(argv: string[]): CliArgs {
 			case '--sitemap-url':
 				args.sitemapUrl = argv[++i]
 				break
+			case '--url':
+				args.url = argv[++i]
+				break
 			default:
 				throw new Error(`Unknown argument: ${arg}`)
 		}
@@ -132,7 +143,122 @@ function loadFixtureManifest(path: string): FixtureManifest {
 	return JSON.parse(readFileSync(resolve(path), 'utf-8')) as FixtureManifest
 }
 
+/**
+ * Validates a `--url` argument fully offline (Task 7.3): well-formed,
+ * absolute, the expected scheme, no credentials, no fragment, and belonging
+ * to exactly `args.domain`. Also rejects any URL that `args.domain`'s store
+ * profile classifier does not recognize as a product candidate — a known
+ * category, search, account, or checkout URL (req. §8) — without ever
+ * making a network request.
+ *
+ * `expectedProtocol` is 'https' in production (the only scheme --url may
+ * use for a real run). Live-mode tests pass the same `protocol` override
+ * already used everywhere else in this file to point the whole pipeline at
+ * a local http:// test server; this keeps --url's scheme check consistent
+ * with every other URL this file constructs, rather than special-casing it.
+ *
+ * `storeProfilePolicy` controls how `--domain` is resolved to a store
+ * profile (Task 7.3 follow-up safety review §1-2):
+ *   - `{ kind: 'fallback' }` (fixture mode): resolves via the registry,
+ *     falling back to vizaje-nica.com's profile for an unregistered domain
+ *     — unchanged from before, and safe because fixture mode never opens a
+ *     socket regardless of domain.
+ *   - `{ kind: 'strict' }` (live mode, production): requires `--domain` to
+ *     have an EXPLICITLY REGISTERED profile (src/lib/discovery/stores/registry.ts).
+ *     An unregistered domain is rejected outright — explicit --url mode
+ *     must never silently validate an unknown live domain against a
+ *     generic pattern borrowed from a different store.
+ *   - `{ kind: 'test-override', storeProfile }` (live mode, tests only):
+ *     uses the given profile directly, bypassing the registry entirely, so
+ *     a local HTTP test server (whose domain is never registered) can still
+ *     exercise this code path end-to-end — without reintroducing the
+ *     production fallback this safety review removed. Never set from the
+ *     CLI; only `runLiveMode`'s `overrides.storeProfile` test hatch
+ *     constructs this variant.
+ */
+type StoreProfilePolicy = { kind: 'fallback' } | { kind: 'strict' } | { kind: 'test-override'; storeProfile: StoreProfile }
+
+function resolveExplicitUrl(
+	args: CliArgs,
+	expectedProtocol: 'http' | 'https',
+	storeProfilePolicy: StoreProfilePolicy
+): { url: string; storeProfile: StoreProfile } {
+	const raw = args.url
+	if (!raw) throw new Error('internal error: resolveExplicitUrl called without --url')
+
+	let parsed: URL
+	try {
+		parsed = new URL(raw)
+	} catch {
+		throw new Error(`--url must be a well-formed absolute URL (received "${raw}")`)
+	}
+
+	if (parsed.protocol !== `${expectedProtocol}:`) {
+		throw new Error(`--url must use ${expectedProtocol}:// — refusing unsupported scheme "${parsed.protocol}"`)
+	}
+	if (parsed.username !== '' || parsed.password !== '') {
+		throw new Error('--url must not contain credentials (username/password)')
+	}
+	if (parsed.hash !== '') {
+		throw new Error('--url must not contain a fragment')
+	}
+	if (parsed.host.toLowerCase() !== args.domain.toLowerCase()) {
+		throw new Error(`--url host "${parsed.host}" does not match --domain "${args.domain}" — refusing a cross-store URL`)
+	}
+
+	let storeProfile: StoreProfile
+	if (storeProfilePolicy.kind === 'test-override') {
+		storeProfile = storeProfilePolicy.storeProfile
+	} else {
+		const registered = getStoreProfile(args.domain)
+		if (registered) {
+			storeProfile = registered
+		} else if (storeProfilePolicy.kind === 'fallback') {
+			storeProfile = vizajeNicaStoreProfile
+		} else {
+			throw new Error(
+				`--url requires an explicitly registered store profile for domain "${args.domain}" ` +
+					'(see src/lib/discovery/stores/registry.ts) — live --url mode never falls back to a generic ' +
+					"pattern borrowed from a different store for a domain it does not recognize."
+			)
+		}
+	}
+
+	const match = storeProfile.classifyProductUrl(raw)
+	if (!match) {
+		throw new Error(
+			`Refusing to validate "${raw}": it does not match ${storeProfile.domain}'s product-page classifier — ` +
+				'likely a category, search, account, or checkout URL (or an otherwise unrecognized shape).'
+		)
+	}
+
+	return { url: raw, storeProfile }
+}
+
 export async function runFixtureMode(args: CliArgs): Promise<ValidateLiveReport> {
+	if (args.url) {
+		const { url, storeProfile } = resolveExplicitUrl(args, 'https', { kind: 'fallback' })
+		const manifest = loadFixtureManifest(args.fixtureManifestPath)
+
+		const fetchText = async (fetchUrl: string): Promise<RobotsPageFetch> => {
+			if (fetchUrl === manifest.robotsUrl) return { status: 200, body: readFileSync(resolve(manifest.robotsFixture), 'utf-8') }
+			const path = manifest.pageFixtures[fetchUrl] ?? null
+			if (!path) return { status: 404, body: '' }
+			return { status: 200, body: readFileSync(resolve(path), 'utf-8') }
+		}
+
+		return validateLiveDomain({
+			domain: args.domain,
+			mode: 'fixture',
+			requestedSampleSize: 1,
+			userAgent: args.userAgent,
+			robotsUrl: manifest.robotsUrl,
+			fetchText,
+			storeProfile,
+			explicitUrl: url
+		})
+	}
+
 	const manifest = loadFixtureManifest(args.fixtureManifestPath)
 
 	const fileFor = (url: string): string | null => {
@@ -182,6 +308,19 @@ export interface LiveModeTestOverrides {
 		maxDecompressedBytes?: number
 		maxTotalRunBytes?: number
 	}
+	/**
+	 * Test-only escape hatch for `--url` mode specifically (Task 7.3 follow-up
+	 * safety review §1-2): production live `--url` requires `--domain` to have
+	 * an explicitly registered store profile (src/lib/discovery/stores/registry.ts)
+	 * and never falls back to a generic pattern borrowed from a different
+	 * store. A local HTTP test server's domain (e.g. "127.0.0.1:54321") is
+	 * never registered, so tests pass the profile to use directly here
+	 * instead — exercising the exact same classification/extraction code a
+	 * registered domain would use, without reintroducing that silent
+	 * fallback for production. Never set from the CLI; ignored when `--url`
+	 * is not supplied.
+	 */
+	storeProfile?: StoreProfile
 }
 
 export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverrides = {}): Promise<ValidateLiveReport> {
@@ -193,7 +332,17 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 	}
 
 	const allowlist = overrides.allowlist
-	const storeProfile = getStoreProfile(args.domain) ?? vizajeNicaStoreProfile
+	const protocol = overrides.protocol ?? 'https'
+
+	// Resolved up front (fully offline) so an invalid --url, or a --domain
+	// with no registered store profile, is rejected before the scheduler, or
+	// any socket, is ever created (Task 7.3). Live mode uses the 'strict'
+	// policy — never the registry's vizaje-nica fallback — unless a test
+	// explicitly supplies its own profile via overrides.storeProfile.
+	const explicitUrlResolution = args.url
+		? resolveExplicitUrl(args, protocol, overrides.storeProfile ? { kind: 'test-override', storeProfile: overrides.storeProfile } : { kind: 'strict' })
+		: null
+	const storeProfile = explicitUrlResolution?.storeProfile ?? getStoreProfile(args.domain) ?? vizajeNicaStoreProfile
 
 	// Concurrency 1, conservative pacing: one in-flight request to this
 	// domain at a time, with at least --delay-ms between requests.
@@ -268,12 +417,6 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 		})
 	}
 
-	const protocol = overrides.protocol ?? 'https'
-	// A `protocol` override means a test is pointing this at a local server
-	// standing in for `args.domain` (see tests/validation/validate-live-cli.test.ts)
-	// — in that case the sitemap must be constructed from that same
-	// domain/protocol, not the store profile's real-world default URL.
-	const sitemapEntryUrl = args.sitemapUrl ?? (overrides.protocol ? `${protocol}://${args.domain}/sitemap.xml` : storeProfile.defaultSitemapUrl)
 	const robotsUrl = `${protocol}://${args.domain}/robots.txt`
 
 	// robots.txt's own Crawl-delay (e.g. ovico.md's `Crawl-delay: 30`) must
@@ -289,6 +432,26 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 			scheduler.raiseMinDelayForDomain(new URL(robotsUrl).hostname, crawlDelaySeconds * 1000)
 		}
 	}
+
+	if (explicitUrlResolution) {
+		return validateLiveDomain({
+			domain: args.domain,
+			mode: 'live',
+			requestedSampleSize: 1,
+			userAgent: args.userAgent,
+			robotsUrl,
+			fetchText,
+			onRobotsLoaded,
+			storeProfile,
+			explicitUrl: explicitUrlResolution.url
+		})
+	}
+
+	// A `protocol` override means a test is pointing this at a local server
+	// standing in for `args.domain` (see tests/validation/validate-live-cli.test.ts)
+	// — in that case the sitemap must be constructed from that same
+	// domain/protocol, not the store profile's real-world default URL.
+	const sitemapEntryUrl = args.sitemapUrl ?? (overrides.protocol ? `${protocol}://${args.domain}/sitemap.xml` : storeProfile.defaultSitemapUrl)
 
 	return validateLiveDomain({
 		domain: args.domain,

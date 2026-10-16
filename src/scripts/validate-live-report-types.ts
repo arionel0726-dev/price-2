@@ -101,8 +101,12 @@ export interface ValidateLiveReport {
 		 *     into any recognizable form and zero URLs were discovered as a
 		 *     result — never silently reported as "the store simply has no
 		 *     products".
+		 *   - 'skipped': sitemap discovery was never attempted because an
+		 *     explicit `--url` was supplied instead (Task 7.3 §9) — exactly
+		 *     one pre-validated URL is used as the sample rather than a
+		 *     sitemap-derived candidate set.
 		 */
-		status: 'ok' | 'partial' | 'discovery_failed'
+		status: 'ok' | 'partial' | 'discovery_failed' | 'skipped'
 		/** Per-sitemap-file issues (fetch failures, malformed XML, an unrecognized root element, depth/url limits) — see src/lib/discovery/types.ts. */
 		sitemapDiagnostics: SitemapDiagnostic[]
 		/** Total number of individual sitemap files (including nested ones) actually fetched in this run. */
