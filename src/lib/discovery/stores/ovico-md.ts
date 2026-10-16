@@ -26,6 +26,7 @@
  * unmodified bounded discovery infrastructure (`src/lib/discovery/sitemap.ts`).
  */
 import { canonicalizeProductUrl, InvalidProductUrlError } from '../../catalog/url'
+import { classifyAndExtractOvicoHtml } from '../../scraping/adapters/ovico'
 import type { StoreProfile, StoreUrlMatch } from './types'
 
 const OVICO_FLAT_SLUG_PATTERN = /^\/(ru|ro)\/([a-z0-9-]+)\/?$/i
@@ -125,5 +126,10 @@ export const ovicoMdStoreProfile: StoreProfile = {
 	defaultSitemapUrl: 'https://ovico.md/media/sitemap/sitemap_index.xml',
 	patternConfidence: 'unverified',
 	classifyProductUrl,
-	dedupeProductUrls
+	dedupeProductUrls,
+	// ovico.md's confirmed real product HTML carries no Product JSON-LD at
+	// all (see Task 7.1 delivery notes) — without this, every ovico.md page
+	// would be reported missing_json_ld regardless of whether it's actually
+	// a genuine, available product. See src/lib/scraping/adapters/ovico.ts.
+	htmlOnlyExtract: classifyAndExtractOvicoHtml
 }

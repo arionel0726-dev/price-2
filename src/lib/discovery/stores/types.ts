@@ -9,8 +9,29 @@
  *
  * Matching a store's `classifyProductUrl` only ever produces a
  * *candidate* — JSON-LD extraction (`src/lib/scraping/extract.ts`)
- * remains the sole authority on whether a page is actually a product.
+ * remains the sole authority on whether a page is actually a product,
+ * except where `htmlOnlyExtract` (below) is explicitly provided.
  */
+import type { NormalizedProductRecord } from '../../scraping/types'
+
+/**
+ * Store-specific fallback invoked ONLY when the generic JSON-LD pipeline
+ * found zero Product nodes on a page. Lets a store whose pages carry no
+ * Product JSON-LD at all (e.g. ovico.md's Magento templates — see
+ * src/lib/scraping/adapters/ovico.ts) still be classified/extracted from
+ * confirmed HTML structure, without ever becoming the default path for a
+ * store that already has JSON-LD. Returns:
+ *   - `{ kind: 'product', record }` when site-specific structural markers
+ *     confirm this is a product page (`record` is null only if a required
+ *     field failed schema validation after normalization).
+ *   - `{ kind: 'non_product' }` when site-specific markers confirm this is
+ *     NOT a product page (e.g. a Magento category/listing grid).
+ *   - `null` when neither can be determined from the HTML — the caller
+ *     falls back to the existing generic missing/invalid-JSON-LD outcome
+ *     mapping rather than this function guessing.
+ */
+export type HtmlOnlyExtractResult = { kind: 'product'; record: NormalizedProductRecord | null } | { kind: 'non_product' } | null
+export type HtmlOnlyExtract = (sourceUrl: string, html: string) => HtmlOnlyExtractResult
 
 export interface StoreUrlMatch {
 	/** Stable key used for deduplication — two URLs with the same key are treated as the same product. */
@@ -47,4 +68,6 @@ export interface StoreProfile {
 	dedupeProductUrls: (urls: string[]) => string[]
 	/** Orders the deduplicated candidates before sampling (e.g. a preferred language first). Defaults to input order when omitted. */
 	sortCandidates?: (urls: string[]) => string[]
+	/** See `HtmlOnlyExtract` above. Omitted for stores whose pages are expected to carry JSON-LD. */
+	htmlOnlyExtract?: HtmlOnlyExtract
 }

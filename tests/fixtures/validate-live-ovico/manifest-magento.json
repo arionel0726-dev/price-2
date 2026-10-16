@@ -1,0 +1,11 @@
+{
+	"sitemapUrl": "https://ovico.md/media/sitemap/sitemap_index.xml",
+	"sitemapFixture": "tests/fixtures/validate-live-ovico/sitemaps/sitemap-magento.xml",
+	"robotsUrl": "https://ovico.md/robots.txt",
+	"robotsFixture": "tests/fixtures/validate-live-ovico/robots.txt",
+	"pageFixtures": {
+		"https://ovico.md/ru/avignon-edt-50ml-vapo": "tests/fixtures/validate-live-ovico/html/avignon-edt-50ml-vapo-magento-product.html",
+		"https://ovico.md/ru/avignon-edt-100ml-vapo": "tests/fixtures/validate-live-ovico/html/avignon-edt-100ml-vapo-unavailable.html",
+		"https://ovico.md/ru/parfumuri-sezon": "tests/fixtures/validate-live-ovico/html/parfumuri-sezon-magento-category.html"
+	}
+}

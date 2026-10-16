@@ -269,9 +269,14 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 				language,
 				outcome: 'access_restricted',
 				httpStatus: httpResult.status,
-				errorMessage: snapshot.looksLikeAwsWafChallenge
-					? 'Response was an AWS WAF JavaScript challenge, not product content — access-restricted, not a product extraction failure.'
-					: 'Response matched a bot-challenge/access-restriction signal, not product content — access-restricted, not a product extraction failure.',
+				// Includes WHICH signal(s) actually matched (see
+				// classifyHtmlSnapshot's `notes`) rather than a generic
+				// boilerplate message — on a real run this is the only record
+				// of why a page was judged access-restricted, since the raw
+				// HTML itself is never persisted (Task 7.1 §1: distinguishing
+				// "the classifier is wrong" from "the response really was
+				// restricted" requires knowing which marker fired).
+				errorMessage: `Classified as access-restricted, not product content: ${snapshot.notes.join('; ')}`,
 				extracted: null,
 				missingFields: [],
 				conflicts: []
@@ -296,17 +301,51 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 				conflicts: product.conflicts ?? []
 			})
 		} else {
-			const failure = extraction.failures[0]
-			results.push({
-				url,
-				language,
-				outcome: mapFailureReasonToOutcome(failure?.reason),
-				httpStatus: httpResult.status,
-				errorMessage: failure?.message ?? 'No product extracted and no failure reported',
-				extracted: null,
-				missingFields: [],
-				conflicts: []
-			})
+			// Store-specific fallback for a page with NO JSON-LD Product node
+			// at all (e.g. ovico.md's Magento templates — see Task 7.1 and
+			// src/lib/scraping/adapters/ovico.ts). Only consulted once the
+			// generic pipeline has already found nothing; it never overrides
+			// or competes with a JSON-LD-derived record.
+			const htmlOnly = storeProfile.htmlOnlyExtract?.(url, httpResult.body) ?? null
+
+			if (htmlOnly?.kind === 'product' && htmlOnly.record) {
+				extractedCount++
+				const summary = buildExtractedSummary(htmlOnly.record)
+				results.push({
+					url,
+					language,
+					outcome: 'extracted',
+					httpStatus: httpResult.status,
+					errorMessage: null,
+					extracted: summary,
+					missingFields: computeMissingFields(summary),
+					fieldProvenance: htmlOnly.record.fieldProvenance,
+					conflicts: htmlOnly.record.conflicts ?? []
+				})
+			} else if (htmlOnly?.kind === 'non_product') {
+				results.push({
+					url,
+					language,
+					outcome: 'non_product_page',
+					httpStatus: httpResult.status,
+					errorMessage: 'Site-specific structural markers (Magento category/listing grid) identify this as a non-product page.',
+					extracted: null,
+					missingFields: [],
+					conflicts: []
+				})
+			} else {
+				const failure = extraction.failures[0]
+				results.push({
+					url,
+					language,
+					outcome: mapFailureReasonToOutcome(failure?.reason),
+					httpStatus: httpResult.status,
+					errorMessage: failure?.message ?? 'No product extracted and no failure reported',
+					extracted: null,
+					missingFields: [],
+					conflicts: []
+				})
+			}
 		}
 	}
 

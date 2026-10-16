@@ -1,0 +1,52 @@
+<!doctype html>
+<!--
+	Sanitized reconstruction of a real Magento product page response from
+	https://ovico.md/ru/avignon-edt-50ml-vapo (Task 7.1 authorized diagnostic
+	snapshot). Session keys, personal data, and unrelated third-party
+	scripts have been removed/replaced with placeholders; only the
+	confirmed structural markers are reproduced:
+	  - Magento layout handle: catalog_product_view
+	  - .product-page container
+	  - .product-page__details-name (title)
+	  - .product-page__details-type (product type)
+	  - .product-page__details-code.sku with data-product-sku (SKU)
+	  - .radio-volume (volume)
+	  - .product-page__details-not-available is ABSENT here (in stock)
+	No Product JSON-LD is present, matching the real observed response.
+-->
+<html lang="ru">
+<head>
+	<meta charset="utf-8" />
+	<title>Avignon EDT 50ml Vapo</title>
+	<!-- Magento's standard default-theme noscript block, included here
+	     specifically to verify it does NOT trip any access-restriction
+	     marker (Task 7.1 §2). -->
+	<noscript>
+		<div class="message global noscript">
+			<p>
+				<strong>JavaScript seems to be disabled in your browser.</strong>
+				<span>You have to enable JavaScript in your browser to utilize the functionality of this website.</span>
+			</p>
+		</div>
+	</noscript>
+</head>
+<!-- Layout Handles: default catalog_product_view -->
+<body class="catalog-product-view product-page-layout">
+	<main class="product-page" data-mage-init='{"productPage": {}}'>
+		<nav class="breadcrumbs">
+			<a href="/ru">Главная</a> / <a href="/ru/parfumuri">Парфюмерия</a> / Avignon EDT 50ml Vapo
+		</nav>
+		<h1 class="product-page__details-name">Avignon EDT 50ml Vapo</h1>
+		<div class="product-page__details-type">Туалетная вода</div>
+		<div class="product-page__details-code sku" data-product-sku="OVC-AVG-50EDT">Код товара: OVC-AVG-50EDT</div>
+		<div class="product-page__options">
+			<div class="radio-volume selected" aria-checked="true">50 ml</div>
+		</div>
+		<div class="product-page__price">
+			<!-- Price markup observed but selector not confirmed — never
+			     extracted speculatively (Task 7.1 §6). -->
+			<span class="price">-- MDL</span>
+		</div>
+	</main>
+</body>
+</html>

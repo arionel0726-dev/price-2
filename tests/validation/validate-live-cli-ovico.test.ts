@@ -3,6 +3,7 @@ import { main } from '../../src/scripts/validate-live'
 
 const MANIFEST_PATH = 'tests/fixtures/validate-live-ovico/manifest.json'
 const BROKEN_MANIFEST_PATH = 'tests/fixtures/validate-live-ovico/manifest-broken-sitemap.json'
+const MAGENTO_MANIFEST_PATH = 'tests/fixtures/validate-live-ovico/manifest-magento.json'
 
 describe('validate-live CLI — ovico.md fixture mode (fully offline, unverified classifier)', () => {
 	test('discovers through the nested sitemap index and reproduces the exact fixture report', async () => {
@@ -146,5 +147,42 @@ describe('validate-live CLI — ovico.md discovery failure (sitemap cannot be fo
 		expect(report.discovery.totalSitemapUrls).toBe(0)
 		expect(report.discovery.sitemapDiagnostics.length).toBeGreaterThan(0)
 		expect(report.pages.attempted).toBe(0)
+	})
+})
+
+describe('validate-live CLI — ovico.md Magento HTML fallback end-to-end (Task 7.1)', () => {
+	test('a genuine Magento product page with no JSON-LD is extracted (not access_restricted, not missing_json_ld)', async () => {
+		const report = await main(['--domain', 'ovico.md', '--fixture-manifest', MAGENTO_MANIFEST_PATH])
+
+		const available = report.results.find((r) => r.url === 'https://ovico.md/ru/avignon-edt-50ml-vapo')
+		expect(available?.outcome).toBe('extracted')
+		expect(available?.extracted?.title).toBe('Avignon EDT 50ml Vapo')
+		expect(available?.extracted?.sku).toBe('OVC-AVG-50EDT')
+		expect(available?.extracted?.variant).toBe('50 ml')
+		expect(available?.extracted?.availability).toBe('in_stock')
+		expect(available?.extracted?.brand).toBeNull()
+		expect(available?.extracted?.gtin).toBeNull()
+		expect(available?.extracted?.price).toBeNull()
+		expect(available?.missingFields.sort()).toEqual(['brand', 'currency', 'gtin', 'price'])
+	})
+
+	test('an unavailable Magento product is extracted as out_of_stock, never silently dropped', async () => {
+		const report = await main(['--domain', 'ovico.md', '--fixture-manifest', MAGENTO_MANIFEST_PATH])
+		const unavailable = report.results.find((r) => r.url === 'https://ovico.md/ru/avignon-edt-100ml-vapo')
+		expect(unavailable?.outcome).toBe('extracted')
+		expect(unavailable?.extracted?.availability).toBe('out_of_stock')
+	})
+
+	test('a flat-slug Magento category page is correctly identified as non_product_page by structure, not URL shape', async () => {
+		const report = await main(['--domain', 'ovico.md', '--fixture-manifest', MAGENTO_MANIFEST_PATH])
+		const category = report.results.find((r) => r.url === 'https://ovico.md/ru/parfumuri-sezon')
+		expect(category?.outcome).toBe('non_product_page')
+		expect(category?.extracted).toBeNull()
+	})
+
+	test('none of the Magento fixtures (including the standard noscript block) are misclassified as access_restricted', async () => {
+		const report = await main(['--domain', 'ovico.md', '--fixture-manifest', MAGENTO_MANIFEST_PATH])
+		expect(report.outcomeCounts.access_restricted).toBe(0)
+		expect(report.outcomeCounts.missing_json_ld).toBe(0)
 	})
 })

@@ -101,3 +101,25 @@ describe('classifyHtmlSnapshot — AWS WAF JavaScript challenge detection (Task 
 		expect(result.looksLikeAwsWafChallenge).toBe(false)
 	})
 })
+
+describe('classifyHtmlSnapshot — a genuine Magento product page is never misclassified as access-restricted (Task 7.1 §2/§4)', () => {
+	function loadOvico(name: string): string {
+		return readFileSync(`tests/fixtures/validate-live-ovico/html/${name}`, 'utf-8')
+	}
+
+	test('the sanitized real ovico.md Magento product page (including its standard noscript JS-required block) is not flagged as a challenge', () => {
+		const result = classifyHtmlSnapshot(loadOvico('avignon-edt-50ml-vapo-magento-product.html'))
+		expect(result.looksLikeChallengePage).toBe(false)
+		expect(result.looksLikeAwsWafChallenge).toBe(false)
+	})
+
+	test('the unavailable-product Magento fixture is also not flagged as a challenge', () => {
+		const result = classifyHtmlSnapshot(loadOvico('avignon-edt-100ml-vapo-unavailable.html'))
+		expect(result.looksLikeChallengePage).toBe(false)
+	})
+
+	test('the Magento category/listing page is also not flagged as a challenge', () => {
+		const result = classifyHtmlSnapshot(loadOvico('parfumuri-sezon-magento-category.html'))
+		expect(result.looksLikeChallengePage).toBe(false)
+	})
+})
