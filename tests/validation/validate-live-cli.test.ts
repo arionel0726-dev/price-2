@@ -54,7 +54,8 @@ describe('validate-live CLI — fixture mode (fully offline)', () => {
 			non_product_page: 1,
 			missing_json_ld: 1,
 			invalid_json_ld: 1,
-			redirect_disallowed: 0
+			redirect_disallowed: 0,
+			access_restricted: 0
 		})
 	})
 

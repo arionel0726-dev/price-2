@@ -1,3 +1,4 @@
+import { classifyHtmlSnapshot } from '../diagnostics/html-snapshot'
 import { discoverSitemapUrls } from '../discovery/sitemap'
 import type { SitemapDiagnostic } from '../discovery/types'
 import { vizajeNicaStoreProfile } from '../discovery/stores/vizaje-nica'
@@ -240,6 +241,31 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 		}
 
 		fetchedSuccessfully++
+
+		// Detect an access-restriction/bot-challenge response (e.g. a
+		// confirmed AWS WAF JavaScript challenge — see
+		// src/lib/diagnostics/html-snapshot.ts) BEFORE attempting extraction,
+		// so it is never miscounted as a genuine 'missing_json_ld' extraction
+		// failure and its content is never stored as product data (Task 6.2
+		// §3-5). A challenge page legitimately has no JSON-LD, but the right
+		// diagnosis is "we didn't get the real page", not "the real page has
+		// no structured data".
+		const snapshot = classifyHtmlSnapshot(httpResult.body)
+		if (snapshot.looksLikeChallengePage) {
+			results.push({
+				url,
+				language,
+				outcome: 'access_restricted',
+				httpStatus: httpResult.status,
+				errorMessage: snapshot.looksLikeAwsWafChallenge
+					? 'Response was an AWS WAF JavaScript challenge, not product content — access-restricted, not a product extraction failure.'
+					: 'Response matched a bot-challenge/access-restriction signal, not product content — access-restricted, not a product extraction failure.',
+				extracted: null,
+				missingFields: [],
+				conflicts: []
+			})
+			continue
+		}
 
 		const extraction = extractProductsFromHtml(url, httpResult.body)
 		if (extraction.products.length > 0) {

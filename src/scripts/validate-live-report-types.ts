@@ -10,6 +10,15 @@ export type PageOutcome =
 	| 'invalid_json_ld'
 	/** The response (or a redirect hop leading to it) touched a host outside the live-validation allowlist — see src/lib/net/allowlist.ts. A specific, more actionable case of "network/access failure". */
 	| 'redirect_disallowed'
+	/**
+	 * The response was detected as an access-restriction/bot-challenge page
+	 * (e.g. a confirmed AWS WAF JavaScript challenge — see
+	 * src/lib/diagnostics/html-snapshot.ts) rather than real page content.
+	 * Deliberately distinct from 'missing_json_ld': a challenge page is not
+	 * "a product page we failed to extract", it is "not the page we asked
+	 * for" — see Task 6.2. Extraction is never attempted on such a response.
+	 */
+	| 'access_restricted'
 
 export interface ExtractedFieldsSummary {
 	title: string | null
@@ -133,6 +142,7 @@ export function emptyOutcomeCounts(): Record<PageOutcome, number> {
 		non_product_page: 0,
 		missing_json_ld: 0,
 		invalid_json_ld: 0,
-		redirect_disallowed: 0
+		redirect_disallowed: 0,
+		access_restricted: 0
 	}
 }

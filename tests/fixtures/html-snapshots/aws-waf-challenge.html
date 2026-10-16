@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+	Sanitized reconstruction of the AWS WAF JavaScript challenge observed on
+	real makeup.md product URLs during Task 6.2. All domain/key/token/IV
+	values below are placeholders — this is NOT a real captured response and
+	contains no real challenge tokens or cookie domains.
+-->
+<html>
+<head><title>makeup.md</title></head>
+<body>
+	<div id="challenge-container">
+		<p>We need to verify that you are a human and not a robot. Please enable JavaScript and wait while we check your browser.</p>
+	</div>
+	<script>
+		window.awsWafCookieDomainList = [".sanitized-example.test"];
+		window.gokuProps = {
+			"key": "SANITIZED-PLACEHOLDER-KEY",
+			"iv": "SANITIZED-PLACEHOLDER-IV",
+			"context": "SANITIZED-PLACEHOLDER-CONTEXT"
+		};
+	</script>
+	<script src="https://sanitized-example.token.awswaf.com/challenge.js"></script>
+	<script>
+		if (window.AwsWafIntegration) {
+			window.AwsWafIntegration.getToken().then(function () {
+				// placeholder — real challenge flow omitted
+			});
+		}
+	</script>
+</body>
+</html>

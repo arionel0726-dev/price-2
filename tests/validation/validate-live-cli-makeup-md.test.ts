@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { main, parseArgs, runLiveMode } from '../../src/scripts/validate-live'
 
 const MANIFEST_PATH = 'tests/fixtures/validate-live-makeup-md/manifest.json'
+const ACCESS_RESTRICTED_MANIFEST_PATH = 'tests/fixtures/validate-live-makeup-md/manifest-access-restricted.json'
 
 describe('validate-live CLI — makeup.md fixture mode (fully offline, unverified classifier)', () => {
 	test('discovers through the nested sitemap index and reproduces the exact fixture report', async () => {
@@ -29,7 +30,8 @@ describe('validate-live CLI — makeup.md fixture mode (fully offline, unverifie
 			non_product_page: 1,
 			missing_json_ld: 1,
 			invalid_json_ld: 1,
-			redirect_disallowed: 0
+			redirect_disallowed: 0,
+			access_restricted: 0
 		})
 	})
 
@@ -215,4 +217,22 @@ describe('validate-live CLI — makeup.md fails closed when robots.txt cannot be
 		expect(report.robots.failedClosed).toBe(true)
 		expect(report.pages.attempted).toBe(0)
 	}, 15_000)
+})
+
+describe('validate-live CLI — makeup.md access-restricted (AWS WAF challenge) responses (Task 6.2)', () => {
+	test('a confirmed AWS WAF JavaScript challenge is reported as access_restricted, never missing_json_ld, and never stored as extracted product data', async () => {
+		const report = await main(['--domain', 'makeup.md', '--fixture-manifest', ACCESS_RESTRICTED_MANIFEST_PATH])
+
+		expect(report.pages.fetchedSuccessfully).toBe(2)
+		expect(report.pages.extracted).toBe(0)
+		expect(report.outcomeCounts.access_restricted).toBe(2)
+		expect(report.outcomeCounts.missing_json_ld).toBe(0)
+		expect(report.outcomeCounts.extracted).toBe(0)
+
+		for (const result of report.results) {
+			expect(result.outcome).toBe('access_restricted')
+			expect(result.extracted).toBeNull()
+			expect(result.errorMessage).toContain('AWS WAF')
+		}
+	})
 })

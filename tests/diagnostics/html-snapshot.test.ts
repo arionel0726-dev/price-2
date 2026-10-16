@@ -58,3 +58,46 @@ describe('classifyHtmlSnapshot — distinguishes page kinds without guessing sel
 		expect(result.notes.some((n) => n.includes('failed to parse'))).toBe(true)
 	})
 })
+
+describe('classifyHtmlSnapshot — AWS WAF JavaScript challenge detection (Task 6.2)', () => {
+	test('a sanitized reconstruction of the real makeup.md AWS WAF challenge is correctly flagged', () => {
+		const result = classifyHtmlSnapshot(load('aws-waf-challenge.html'))
+		expect(result.looksLikeAwsWafChallenge).toBe(true)
+		expect(result.looksLikeChallengePage).toBe(true)
+		expect(result.hasProductJsonLd).toBe(false)
+		expect(result.notes.some((n) => n.includes('AWS WAF JavaScript-challenge markers'))).toBe(true)
+	})
+
+	test('each confirmed marker alone is sufficient to flag the page (window.awsWafCookieDomainList, window.gokuProps, token.awswaf.com, challenge.js, challenge-container, AwsWafIntegration.getToken())', () => {
+		const markers = [
+			'window.awsWafCookieDomainList = [];',
+			'window.gokuProps = {};',
+			'<script src="https://x.token.awswaf.com/y"></script>',
+			'<script src="/challenge.js"></script>',
+			'<div id="challenge-container"></div>',
+			'window.AwsWafIntegration.getToken();'
+		]
+		for (const marker of markers) {
+			const result = classifyHtmlSnapshot(`<html><body>${marker}</body></html>`)
+			expect(result.looksLikeAwsWafChallenge).toBe(true)
+		}
+	})
+
+	test('a legitimate product page with ordinary third-party JavaScript (analytics, chat widget) is never misclassified as an AWS WAF challenge (negative test)', () => {
+		const result = classifyHtmlSnapshot(load('product-with-ordinary-js.html'))
+		expect(result.looksLikeAwsWafChallenge).toBe(false)
+		expect(result.looksLikeChallengePage).toBe(false)
+		expect(result.hasProductJsonLd).toBe(true)
+	})
+
+	test('an ordinary product page (no challenge markers at all) is never misclassified as an AWS WAF challenge', () => {
+		const result = classifyHtmlSnapshot(load('real-product-page.html'))
+		expect(result.looksLikeAwsWafChallenge).toBe(false)
+	})
+
+	test('a generic (non-AWS) challenge page is flagged as a challenge page but NOT specifically as an AWS WAF challenge', () => {
+		const result = classifyHtmlSnapshot(load('challenge-page.html'))
+		expect(result.looksLikeChallengePage).toBe(true)
+		expect(result.looksLikeAwsWafChallenge).toBe(false)
+	})
+})

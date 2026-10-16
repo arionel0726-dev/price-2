@@ -1,0 +1,10 @@
+{
+	"sitemapUrl": "https://makeup.md/sitemap/sitemap.xml",
+	"sitemapFixture": "tests/fixtures/validate-live-makeup-md/sitemaps/sitemap-access-restricted.xml",
+	"robotsUrl": "https://makeup.md/robots.txt",
+	"robotsFixture": "tests/fixtures/validate-live-makeup-md/robots.txt",
+	"pageFixtures": {
+		"https://makeup.md/product/686263": "tests/fixtures/validate-live-makeup-md/html/aws-waf-challenge.html",
+		"https://makeup.md/product/677684": "tests/fixtures/validate-live-makeup-md/html/aws-waf-challenge.html"
+	}
+}

@@ -26,7 +26,16 @@ export interface HtmlSnapshotClassification {
 	jsonLdParseFailureCount: number
 	/** @type values found in JSON-LD on this page, other than "Product" (e.g. "CollectionPage", "BreadcrumbList"). */
 	otherJsonLdTypes: string[]
+	/** True when ANY challenge marker matched — generic or AWS-WAF-specific. See `looksLikeAwsWafChallenge` to tell which. */
 	looksLikeChallengePage: boolean
+	/**
+	 * True specifically when one of the confirmed AWS WAF JavaScript-challenge
+	 * markers matched (see AWS_WAF_CHALLENGE_MARKERS below) — a narrower,
+	 * higher-confidence signal than the generic challenge-page wording, based
+	 * on real makeup.md responses (Task 6.2) that the generic markers alone
+	 * missed.
+	 */
+	looksLikeAwsWafChallenge: boolean
 	looksLikeCategoryPage: boolean
 	looksLikeJsEmptyShell: boolean
 	/** Human-readable explanations for every signal above, in the order they were detected. */
@@ -45,6 +54,24 @@ const CHALLENGE_PAGE_MARKERS = [
 	/enable cookies/i,
 	/unusual traffic/i,
 	/verify you are human/i
+]
+
+/**
+ * Confirmed AWS WAF JavaScript-challenge markers, taken from real makeup.md
+ * responses saved during Task 6.2 (sanitized before being committed as test
+ * fixtures — see tests/fixtures/html-snapshots/aws-waf-challenge.html).
+ * Deliberately specific strings (not generic words like "token" or
+ * "challenge" alone, which a legitimate product page could plausibly
+ * contain) so this cannot false-positive on ordinary pages — see the
+ * negative tests in tests/diagnostics/html-snapshot.test.ts.
+ */
+const AWS_WAF_CHALLENGE_MARKERS = [
+	/window\.awsWafCookieDomainList/,
+	/window\.gokuProps/,
+	/token\.awswaf\.com/,
+	/challenge\.js/,
+	/challenge-container/,
+	/AwsWafIntegration\.getToken\(\)/
 ]
 
 const PRODUCT_LINK_PATTERN = /\/(products?|item|p)\//i
@@ -76,7 +103,8 @@ export function classifyHtmlSnapshot(html: string): HtmlSnapshotClassification {
 	const hasProductJsonLd = productNodes.length > 0
 	const otherJsonLdTypes = collectJsonLdTypes(nodes)
 
-	const looksLikeChallengePage = CHALLENGE_PAGE_MARKERS.some((pattern) => pattern.test(html))
+	const looksLikeAwsWafChallenge = AWS_WAF_CHALLENGE_MARKERS.some((pattern) => pattern.test(html))
+	const looksLikeChallengePage = looksLikeAwsWafChallenge || CHALLENGE_PAGE_MARKERS.some((pattern) => pattern.test(html))
 
 	const $ = cheerio.load(html)
 	const bodyText = $('body').text().replace(/\s+/g, ' ').trim()
@@ -103,7 +131,12 @@ export function classifyHtmlSnapshot(html: string): HtmlSnapshotClassification {
 	if (failures.length > 0) {
 		notes.push(`${failures.length} JSON-LD block(s) failed to parse as JSON.`)
 	}
-	if (looksLikeChallengePage) {
+	if (looksLikeAwsWafChallenge) {
+		notes.push(
+			'Detected confirmed AWS WAF JavaScript-challenge markers (awsWafCookieDomainList/gokuProps/token.awswaf.com/challenge.js/' +
+				'challenge-container/AwsWafIntegration.getToken()) — this is an access-restricted response, not a product page.'
+		)
+	} else if (looksLikeChallengePage) {
 		notes.push('Page text matches known bot-challenge/CAPTCHA/access-restriction phrasing.')
 	}
 	if (looksLikeJsEmptyShell) {
@@ -125,6 +158,7 @@ export function classifyHtmlSnapshot(html: string): HtmlSnapshotClassification {
 		jsonLdParseFailureCount: failures.length,
 		otherJsonLdTypes,
 		looksLikeChallengePage,
+		looksLikeAwsWafChallenge,
 		looksLikeCategoryPage,
 		looksLikeJsEmptyShell,
 		notes
