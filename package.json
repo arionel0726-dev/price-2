@@ -16,6 +16,7 @@
 		"sync-catalog": "bun run src/scripts/sync-catalog.ts",
 		"match-catalog": "bun run src/scripts/match-catalog.ts",
 		"validate-live": "bun run src/scripts/validate-live.ts",
+		"snapshot-product-html": "bun run src/scripts/snapshot-product-html.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {

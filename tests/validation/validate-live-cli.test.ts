@@ -41,7 +41,10 @@ describe('validate-live CLI — fixture mode (fully offline)', () => {
 			matchedProductUrlCount: 9,
 			afterLanguageDedupeCount: 7,
 			status: 'ok',
-			sitemapDiagnostics: []
+			sitemapDiagnostics: [],
+			sitemapsAttempted: 1,
+			sitemapsFailed: 0,
+			truncated: false
 		})
 		expect(report.pages).toEqual({ attempted: 6, fetchedSuccessfully: 6, extracted: 3 })
 		expect(report.outcomeCounts).toEqual({

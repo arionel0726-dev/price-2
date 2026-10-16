@@ -23,16 +23,21 @@
  * it is used as the default but is overridable via `--sitemap-url`.
  */
 import { canonicalizeProductUrl, InvalidProductUrlError } from '../../catalog/url'
-import { classifyProductCandidate } from '../classify'
+import { classifyProductCandidate, describeProductCandidateClassification } from '../classify'
 import type { StoreProfile, StoreUrlMatch } from './types'
 
 // Defense in depth alongside classify.ts's own non-product patterns: explicitly
 // vetoes search/cart/checkout/account/login paths regardless of what the
 // generic "likely product" heuristic says.
-const DENYLIST_PATTERNS = [/\/(search|cart|checkout|account|login|register|wishlist|compare)(\/|$|\?)/i]
+const DENYLIST_PATTERNS: { pattern: RegExp; description: string }[] = [
+	{
+		pattern: /\/(search|cart|checkout|account|login|register|wishlist|compare)(\/|$|\?)/i,
+		description: 'path matches the explicit search/cart/checkout/account/login/register/wishlist/compare denylist'
+	}
+]
 
-function isDenylisted(pathname: string): boolean {
-	return DENYLIST_PATTERNS.some((pattern) => pattern.test(pathname))
+function matchedDenylistReason(pathname: string): string | null {
+	return DENYLIST_PATTERNS.find(({ pattern }) => pattern.test(pathname))?.description ?? null
 }
 
 function classifyProductUrl(url: string): StoreUrlMatch | null {
@@ -43,7 +48,7 @@ function classifyProductUrl(url: string): StoreUrlMatch | null {
 		return null
 	}
 
-	if (isDenylisted(pathname)) return null
+	if (matchedDenylistReason(pathname)) return null
 
 	const classification = classifyProductCandidate(url)
 	if (classification.isExcludedAsset) return null
@@ -57,7 +62,10 @@ function classifyProductUrl(url: string): StoreUrlMatch | null {
 		throw cause
 	}
 
-	return { dedupeKey }
+	return {
+		dedupeKey,
+		reason: `${describeProductCandidateClassification(url)} — makeup.md URL shape is UNVERIFIED (no confirmed real sitemap/page sample yet); this is a candidate, not a confirmed product page`
+	}
 }
 
 /**

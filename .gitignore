@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local-only diagnostic output (e.g. src/scripts/snapshot-product-html.ts) —
+# never committed automatically; may contain raw HTML fetched from a live
+# third-party site.
+/.local/

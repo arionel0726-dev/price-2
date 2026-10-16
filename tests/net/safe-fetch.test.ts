@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import * as http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { gzipSync } from 'node:zlib'
 import { safeFetch } from '../../src/lib/net/safe-fetch'
 import { SafeFetchError } from '../../src/lib/net/types'
 
@@ -141,6 +142,90 @@ describe('safeFetch — response limits, timeouts, retries', () => {
 		})
 		expect(response.body).toBe('recovered')
 		expect(attempts).toBe(3)
+	})
+
+	test('transparently decompresses a gzip-encoded response even though the client asked for identity', async () => {
+		const original = '<urlset>' + '<url><loc>https://example.test/product/1</loc></url>'.repeat(50) + '</urlset>'
+		const { baseUrl } = await startServer((_req, res) => {
+			res.writeHead(200, { 'content-type': 'application/xml', 'content-encoding': 'gzip' })
+			res.end(gzipSync(Buffer.from(original)))
+		})
+
+		const response = await safeFetch(baseUrl, { userAgent: TEST_USER_AGENT, allowPrivateNetworks: true })
+		expect(response.body).toBe(original)
+	})
+
+	test('detects gzip by magic bytes even without a Content-Encoding header (defense in depth)', async () => {
+		const original = 'a'.repeat(5000)
+		const { baseUrl } = await startServer((_req, res) => {
+			res.writeHead(200, { 'content-type': 'application/xml' })
+			res.end(gzipSync(Buffer.from(original)))
+		})
+
+		const response = await safeFetch(baseUrl, { userAgent: TEST_USER_AGENT, allowPrivateNetworks: true })
+		expect(response.body).toBe(original)
+	})
+
+	test('aborts decompression once the decompressed size exceeds maxDecompressedBytes, without materializing the full payload (zip-bomb defense)', async () => {
+		const original = 'x'.repeat(2_000_000) // highly compressible, gzips down to well under maxResponseBytes
+		const { baseUrl } = await startServer((_req, res) => {
+			res.writeHead(200, { 'content-type': 'application/xml', 'content-encoding': 'gzip' })
+			res.end(gzipSync(Buffer.from(original)))
+		})
+
+		await expect(
+			safeFetch(baseUrl, { userAgent: TEST_USER_AGENT, allowPrivateNetworks: true, maxDecompressedBytes: 1000 })
+		).rejects.toMatchObject({ code: 'response_too_large' })
+	})
+
+	test('maxResponseBytes still bounds the compressed wire size independently of maxDecompressedBytes', async () => {
+		const original = 'y'.repeat(2_000_000)
+		const compressed = gzipSync(Buffer.from(original))
+		const { baseUrl } = await startServer((_req, res) => {
+			res.writeHead(200, { 'content-type': 'application/xml', 'content-encoding': 'gzip' })
+			res.end(compressed)
+		})
+
+		await expect(
+			safeFetch(baseUrl, {
+				userAgent: TEST_USER_AGENT,
+				allowPrivateNetworks: true,
+				maxResponseBytes: Math.floor(compressed.length / 2),
+				maxDecompressedBytes: 50_000_000
+			})
+		).rejects.toMatchObject({ code: 'response_too_large' })
+	})
+
+	test('decompresses correctly for varied, non-trivially-compressible content (guards against a degenerate-input false pass)', async () => {
+		// Highly repetitive text (like 'x'.repeat(n)) compresses so well that a
+		// buggy double-decompression could coincidentally still "work" on tiny
+		// inputs. Using varied, less-compressible content makes a correctness
+		// bug far more likely to surface as garbled output or a thrown error.
+		const original = Array.from({ length: 3000 }, (_, i) => `line-${i}-${(i * 2654435761) % 97}`).join('\n')
+		const { baseUrl } = await startServer((_req, res) => {
+			res.writeHead(200, { 'content-type': 'text/plain', 'content-encoding': 'gzip' })
+			res.end(gzipSync(Buffer.from(original)))
+		})
+
+		const response = await safeFetch(baseUrl, { userAgent: TEST_USER_AGENT, allowPrivateNetworks: true })
+		expect(response.body).toBe(original)
+		expect(response.body.length).toBe(original.length)
+	})
+
+	test('never silently returns corrupted content if a response is already-plain bytes despite a Content-Encoding: gzip header (fails loudly instead of double-decompressing or garbling) — see the double-decompression safety note in safe-fetch.ts', async () => {
+		const plainText = 'this body is NOT actually gzip-compressed'
+		const { baseUrl } = await startServer((_req, res) => {
+			// Simulates a misconfigured upstream (or, hypothetically, a future
+			// runtime that pre-decompressed the body but left the header as-is):
+			// the header claims gzip, but the bytes are plain text.
+			res.writeHead(200, { 'content-type': 'text/plain', 'content-encoding': 'gzip' })
+			res.end(plainText)
+		})
+
+		// Must reject (loud, safe failure) rather than resolve with garbled or
+		// incorrect text — this is the behavior that rules out silent
+		// double-decompression corruption as a failure mode.
+		await expect(safeFetch(baseUrl, { userAgent: TEST_USER_AGENT, allowPrivateNetworks: true })).rejects.toThrow(SafeFetchError)
 	})
 
 	test('gives up after exhausting retries on connection failure', async () => {

@@ -16,7 +16,10 @@ describe('validate-live CLI — makeup.md fixture mode (fully offline, unverifie
 			matchedProductUrlCount: 9,
 			afterLanguageDedupeCount: 8,
 			status: 'ok',
-			sitemapDiagnostics: []
+			sitemapDiagnostics: [],
+			sitemapsAttempted: 2,
+			sitemapsFailed: 0,
+			truncated: false
 		})
 		expect(report.pages).toEqual({ attempted: 7, fetchedSuccessfully: 7, extracted: 4 })
 		expect(report.outcomeCounts).toEqual({

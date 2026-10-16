@@ -27,8 +27,19 @@ export interface SafeFetchOptions {
 	timeoutMs?: number
 	/** Maximum number of redirect hops to follow. */
 	maxRedirects?: number
-	/** Maximum response body size, in bytes. Responses larger than this are aborted. */
+	/** Maximum response body size, in bytes, as received over the wire (before any decompression). Responses larger than this are aborted. */
 	maxResponseBytes?: number
+	/**
+	 * Maximum size, in bytes, of the body AFTER gzip decompression (when the
+	 * response is gzip-compressed — see safe-fetch.ts's bounded decompression).
+	 * This is a separate, independent cap from `maxResponseBytes` specifically
+	 * to guard against a "zip bomb" (a small compressed payload that expands
+	 * to an enormous one): decompression is streamed and aborted as soon as
+	 * this limit is crossed, so memory use is bounded even for a malicious or
+	 * misconfigured upstream. Has no effect on a response that isn't
+	 * gzip-compressed.
+	 */
+	maxDecompressedBytes?: number
 	/** Sent as the User-Agent header. Required so operators can be identified and rate-limited politely. */
 	userAgent: string
 	/** Number of retry attempts after the first failed attempt (network errors / 5xx only). */

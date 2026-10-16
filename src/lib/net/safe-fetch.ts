@@ -1,5 +1,6 @@
 import * as http from 'node:http'
 import * as https from 'node:https'
+import { createGunzip } from 'node:zlib'
 import { promises as dns } from 'node:dns'
 import { isAllowedProtocol, isPrivateOrReservedIP } from './ssrf'
 import { SafeFetchError, type SafeFetchOptions, type SafeFetchResponse } from './types'
@@ -7,8 +8,86 @@ import { SafeFetchError, type SafeFetchOptions, type SafeFetchResponse } from '.
 const DEFAULT_TIMEOUT_MS = 10_000
 const DEFAULT_MAX_REDIRECTS = 5
 const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1024 * 1024 // 5 MiB
+// Independent of maxResponseBytes (which bounds the wire/compressed size) —
+// this bounds the decompressed size, so a small gzip payload cannot expand
+// into unbounded memory use ("zip bomb" defense).
+const DEFAULT_MAX_DECOMPRESSED_BYTES = 20 * 1024 * 1024 // 20 MiB
 const DEFAULT_RETRIES = 2
 const DEFAULT_RETRY_BASE_DELAY_MS = 300
+
+const GZIP_MAGIC_BYTES = [0x1f, 0x8b]
+
+/**
+ * True when `buffer` starts with the gzip magic number. Checked in addition
+ * to the `Content-Encoding` header because some servers/CDNs gzip-compress
+ * responses even when the client did not advertise support for it (we send
+ * `Accept-Encoding: identity` below specifically to discourage this, but
+ * cannot rely on every upstream honoring it) — sniffing the actual bytes is
+ * what makes this defense-in-depth rather than merely header-trusting.
+ *
+ * Double-decompression safety (verified, not assumed): this module uses
+ * Node's `http`/`https` API (not Bun's native `fetch`), and under Bun's
+ * `node:http`/`node:https` compatibility layer that API does NOT
+ * transparently decompress responses — the bytes handed to `res.on('data')`
+ * are the exact wire bytes, `Content-Encoding` is passed through unchanged,
+ * and gzip magic bytes are intact. This was confirmed directly against a
+ * local gzip-compressed response before relying on it here. If a future
+ * Bun/Node version ever changed this and pre-decompressed a response while
+ * still reporting `Content-Encoding: gzip`, the code below does not
+ * silently return corrupted/garbled text: feeding already-plain bytes into
+ * `createGunzip` fails fast with a "Failed to decompress" error (see
+ * `decompressGzipBounded`'s 'error' handler), so the request is rejected
+ * loudly rather than succeeding with wrong content — see the regression
+ * tests in tests/net/safe-fetch.test.ts.
+ */
+function looksLikeGzip(buffer: Buffer): boolean {
+	return buffer.length >= 2 && buffer[0] === GZIP_MAGIC_BYTES[0] && buffer[1] === GZIP_MAGIC_BYTES[1]
+}
+
+/**
+ * Streams `compressed` through gzip decompression, aborting as soon as the
+ * decompressed size would exceed `maxBytes`. Streaming (rather than
+ * decompressing in one shot and checking the result) is what bounds memory
+ * use even against a true zip bomb: the oversized-output error fires on the
+ * first chunk that crosses the limit, not after the whole payload has
+ * already been materialized.
+ */
+function decompressGzipBounded(compressed: Buffer, maxBytes: number): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		const gunzip = createGunzip()
+		const outChunks: Buffer[] = []
+		let total = 0
+		let settled = false
+
+		const fail = (err: Error) => {
+			if (settled) return
+			settled = true
+			gunzip.destroy()
+			reject(err)
+		}
+
+		gunzip.on('data', (chunk: Buffer) => {
+			total += chunk.length
+			if (total > maxBytes) {
+				fail(new SafeFetchError(`Decompressed response exceeded maximum size of ${maxBytes} bytes`, 'response_too_large'))
+				return
+			}
+			outChunks.push(chunk)
+		})
+
+		gunzip.on('error', (cause) => {
+			fail(new SafeFetchError(`Failed to decompress gzip-encoded response: ${cause.message}`, 'connection_failed', cause))
+		})
+
+		gunzip.on('end', () => {
+			if (settled) return
+			settled = true
+			resolve(Buffer.concat(outChunks))
+		})
+
+		gunzip.end(compressed)
+	})
+}
 
 interface ResolvedAddress {
 	address: string
@@ -69,7 +148,7 @@ function performSingleRequest(
 	url: URL,
 	resolved: ResolvedAddress,
 	options: Required<
-		Pick<SafeFetchOptions, 'method' | 'headers' | 'timeoutMs' | 'maxResponseBytes' | 'userAgent'>
+		Pick<SafeFetchOptions, 'method' | 'headers' | 'timeoutMs' | 'maxResponseBytes' | 'maxDecompressedBytes' | 'userAgent'>
 	>
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
 	return new Promise((resolve, reject) => {
@@ -90,6 +169,12 @@ function performSingleRequest(
 				Host: url.hostname,
 				'User-Agent': options.userAgent,
 				Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+				// Explicitly asks the server not to compress the response, so the
+				// bytes we receive match what maxResponseBytes expects. Some
+				// servers/CDNs ignore this and gzip anyway — see looksLikeGzip
+				// below, which sniffs the actual bytes rather than trusting that
+				// request header to have been honored.
+				'Accept-Encoding': 'identity',
 				...options.headers
 			},
 			timeout: options.timeoutMs
@@ -129,14 +214,33 @@ function performSingleRequest(
 				chunks.push(chunk)
 			})
 
+			let endHandled = false
 			res.on('end', () => {
-				if (settled) return
-				settled = true
-				resolve({
-					status: res.statusCode ?? 0,
-					headers: res.headers,
-					body: Buffer.concat(chunks).toString('utf-8')
-				})
+				if (endHandled || settled) return
+				endHandled = true
+
+				const rawBuffer = Buffer.concat(chunks)
+				const contentEncoding = String(res.headers['content-encoding'] ?? '').toLowerCase()
+				const isGzip = contentEncoding.includes('gzip') || looksLikeGzip(rawBuffer)
+
+				const finish = (bodyBuffer: Buffer) => {
+					if (settled) return
+					settled = true
+					resolve({
+						status: res.statusCode ?? 0,
+						headers: res.headers,
+						body: bodyBuffer.toString('utf-8')
+					})
+				}
+
+				if (!isGzip) {
+					finish(rawBuffer)
+					return
+				}
+
+				decompressGzipBounded(rawBuffer, options.maxDecompressedBytes)
+					.then(finish)
+					.catch((cause) => fail(cause instanceof Error ? cause : new SafeFetchError(String(cause), 'connection_failed')))
 			})
 
 			res.on('error', (cause) => {
@@ -166,6 +270,7 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions): Prom
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
 	const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS
 	const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES
+	const maxDecompressedBytes = options.maxDecompressedBytes ?? DEFAULT_MAX_DECOMPRESSED_BYTES
 	const retries = options.retries ?? DEFAULT_RETRIES
 	const retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS
 	const allowPrivateNetworks = options.allowPrivateNetworks ?? false
@@ -190,6 +295,7 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions): Prom
 					headers: options.headers ?? {},
 					timeoutMs,
 					maxResponseBytes,
+					maxDecompressedBytes,
 					userAgent: options.userAgent
 				})
 				if (isRetryableStatus(attemptResult.status) && attempt < retries) {

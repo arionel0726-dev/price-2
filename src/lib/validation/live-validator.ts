@@ -1,4 +1,5 @@
 import { discoverSitemapUrls } from '../discovery/sitemap'
+import type { SitemapDiagnostic } from '../discovery/types'
 import { vizajeNicaStoreProfile } from '../discovery/stores/vizaje-nica'
 import type { StoreProfile } from '../discovery/stores/types'
 import { DisallowedRedirectError } from '../net/allowlist'
@@ -9,6 +10,7 @@ import {
 	emptyMissingFieldCounts,
 	emptyOutcomeCounts,
 	TRACKED_FIELDS,
+	type CandidateUrlDiagnostic,
 	type ExtractedFieldsSummary,
 	type PageOutcome,
 	type PageResult,
@@ -19,6 +21,11 @@ import {
 export const MAX_PRODUCT_PAGES_PER_RUN = 20
 const DEFAULT_SITEMAP_URL_LIMIT = 20_000 // bounds in-memory sitemap collection only; page fetches are separately capped at MAX_PRODUCT_PAGES_PER_RUN
 
+// Diagnostics that represent an actual per-sitemap-file failure (as opposed
+// to a deliberate bound being reached) — used to count "sitemaps failed"
+// distinctly from "sitemaps truncated by a limit".
+const SITEMAP_FAILURE_ISSUES = new Set<SitemapDiagnostic['issue']>(['fetch_failed', 'malformed_xml', 'unrecognized_format'])
+
 export interface ValidateLiveCoreOptions {
 	domain: string
 	mode: 'fixture' | 'live'
@@ -26,8 +33,18 @@ export interface ValidateLiveCoreOptions {
 	userAgent: string
 	sitemapEntryUrl: string
 	robotsUrl: string
-	/** Fetches a URL and returns its status + body. Used uniformly for robots.txt, the sitemap, and product pages — fixture mode reads files, live mode wraps safeFetch + a DomainScheduler (see src/scripts/validate-live.ts). */
+	/** Fetches a URL and returns its status + body. Used uniformly for robots.txt and product pages — fixture mode reads files, live mode wraps safeFetch + a DomainScheduler (see src/scripts/validate-live.ts). */
 	fetchText: (url: string) => Promise<RobotsPageFetch>
+	/**
+	 * Optional separate fetcher for sitemap XML specifically. Defaults to
+	 * `fetchText` when omitted (fixture mode, and any caller that has not
+	 * opted into a distinct sitemap budget). Live mode supplies one with a
+	 * larger (but still bounded) response-size/decompression budget than
+	 * ordinary HTML pages, since real-world sitemap XML can legitimately be
+	 * much larger than a single product page — see
+	 * src/scripts/validate-live.ts and Task 6.1 §2.
+	 */
+	fetchSitemapText?: (url: string) => Promise<RobotsPageFetch>
 	maxSitemapUrls?: number
 	/**
 	 * The store-specific discovery profile (URL classification + dedup —
@@ -103,31 +120,67 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 			requestedSampleSize: options.requestedSampleSize,
 			effectiveSampleSize,
 			robots: { status: 'fetch_failed', failedClosed: true, reason: robots.reason },
-			discovery: { totalSitemapUrls: 0, matchedProductUrlCount: 0, afterLanguageDedupeCount: 0, status: 'ok', sitemapDiagnostics: [] },
+			discovery: {
+				totalSitemapUrls: 0,
+				matchedProductUrlCount: 0,
+				afterLanguageDedupeCount: 0,
+				status: 'ok',
+				sitemapDiagnostics: [],
+				sitemapsAttempted: 0,
+				sitemapsFailed: 0,
+				truncated: false
+			},
 			pages: { attempted: 0, fetchedSuccessfully: 0, extracted: 0 },
 			missingFieldCounts: emptyMissingFieldCounts(),
 			outcomeCounts: emptyOutcomeCounts(),
 			results: [],
+			candidateDiagnostics: [],
 			completeness: { averageFieldsPresentRatio: 0, fullyCompleteCount: 0 }
 		}
 	}
 
 	const discovery = await discoverSitemapUrls([options.sitemapEntryUrl], {
-		fetchSitemap: (url) => fetchSitemapAdapter(url, options.fetchText),
+		fetchSitemap: (url) => fetchSitemapAdapter(url, options.fetchSitemapText ?? options.fetchText),
 		maxUrls: options.maxSitemapUrls ?? DEFAULT_SITEMAP_URL_LIMIT
 	})
 
-	// A sitemap that could not be fetched/parsed into any recognizable form
-	// yields zero URLs alongside a diagnostic — surfaced explicitly here
-	// rather than silently continuing as if the store simply had no
-	// products (see Task 6 §6: "return a clear diagnostic error rather
-	// than silently falling back to uncontrolled crawling").
-	const discoveryStatus: 'ok' | 'discovery_failed' = discovery.urls.length === 0 && discovery.diagnostics.length > 0 ? 'discovery_failed' : 'ok'
+	const sitemapFailureCount = discovery.diagnostics.filter((d) => SITEMAP_FAILURE_ISSUES.has(d.issue)).length
+
+	// Distinguishes three states rather than a binary ok/failed (Task 6.1 §5):
+	//   - 'discovery_failed': nothing was discovered AND something went wrong —
+	//     never silently reported as "the store simply has no products".
+	//   - 'partial': some URLs WERE discovered, but at least one sitemap file
+	//     failed to fetch/parse, or a bound (maxUrls/maxSitemaps/maxDepth) was
+	//     reached — i.e. the picture is real but incomplete. Never collapsed
+	//     into 'ok', per Task 6.1's explicit "do not report discovery.status =
+	//     ok when important sitemap files failed".
+	//   - 'ok': every visited sitemap file was fetched and parsed successfully
+	//     and no bound was hit.
+	const discoveryStatus: 'ok' | 'partial' | 'discovery_failed' =
+		discovery.urls.length === 0 && discovery.diagnostics.length > 0
+			? 'discovery_failed'
+			: discovery.diagnostics.length > 0
+				? 'partial'
+				: 'ok'
 
 	const matchedUrls = discovery.urls.map((u) => u.url).filter((url) => storeProfile.classifyProductUrl(url) !== null)
 	const dedupedUrls = storeProfile.dedupeProductUrls(matchedUrls)
 	const sortedUrls = storeProfile.sortCandidates ? storeProfile.sortCandidates(dedupedUrls) : dedupedUrls
 	const sample = sortedUrls.slice(0, effectiveSampleSize)
+
+	// Reports exactly the URLs about to be fetched, and *why* each one was
+	// classified as a candidate — never conflated with "confirmed product
+	// page" (that is only ever decided by extraction succeeding below). See
+	// Task 6.1 §1: "Add a safe diagnostic that reports the selected
+	// candidate URLs and the classification reason."
+	const candidateDiagnostics: CandidateUrlDiagnostic[] = sample.map((url) => {
+		const match = storeProfile.classifyProductUrl(url)
+		return {
+			url,
+			patternConfidence: storeProfile.patternConfidence,
+			reason: match?.reason ?? 'matched the store profile classifier (no reason text provided)'
+		}
+	})
 
 	const results: PageResult[] = []
 	let attempted = 0
@@ -246,12 +299,16 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 			matchedProductUrlCount: matchedUrls.length,
 			afterLanguageDedupeCount: dedupedUrls.length,
 			status: discoveryStatus,
-			sitemapDiagnostics: discovery.diagnostics
+			sitemapDiagnostics: discovery.diagnostics,
+			sitemapsAttempted: discovery.sitemapsVisited.length,
+			sitemapsFailed: sitemapFailureCount,
+			truncated: discovery.truncated
 		},
 		pages: { attempted, fetchedSuccessfully, extracted: extractedCount },
 		missingFieldCounts,
 		outcomeCounts,
 		results,
+		candidateDiagnostics,
 		completeness: {
 			averageFieldsPresentRatio: extractedCount === 0 ? 0 : Number((totalPresentRatio / extractedCount).toFixed(4)),
 			fullyCompleteCount

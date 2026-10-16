@@ -35,6 +35,22 @@ const DEFAULT_SAMPLE_SIZE = 10
 const DEFAULT_MIN_DELAY_MS = 2000
 const MIN_ALLOWED_DELAY_MS = 1000
 
+// Sitemap XML is allowed a larger (but still bounded) budget than ordinary
+// HTML pages: real-world sitemaps — especially a nested/paginated set like
+// makeup.md's — can legitimately run tens of megabytes, far beyond a single
+// product page. Both caps stay well short of "unbounded": a 20 MiB wire cap
+// per file and a 50 MiB decompressed cap per file (see safe-fetch.ts's
+// bounded gzip decompression — this also guards against a "zip bomb").
+const SITEMAP_MAX_RESPONSE_BYTES = 20 * 1024 * 1024
+const SITEMAP_MAX_DECOMPRESSED_BYTES = 50 * 1024 * 1024
+// Independent of the per-file caps above: bounds the TOTAL bytes read across
+// every sitemap file fetched in one discovery run (an index can reference
+// many nested files, each individually under the per-file cap, that would
+// still add up to unbounded memory use without a run-wide budget). Discovery
+// stops with a diagnostic — not silently truncated and reported as complete —
+// once this is exceeded; see Task 6.1 §2 and §5.
+const SITEMAP_MAX_TOTAL_RUN_BYTES = 150 * 1024 * 1024
+
 interface FixtureManifest {
 	sitemapUrl: string
 	sitemapFixture: string
@@ -153,6 +169,18 @@ export interface LiveModeTestOverrides {
 	allowPrivateNetworks?: boolean
 	/** Overrides the "https://" scheme used to build the sitemap/robots URLs from `--domain` — only so tests can point this at a local http:// server. */
 	protocol?: 'http' | 'https'
+	/**
+	 * Overrides the production sitemap size/budget constants so tests can
+	 * exercise the oversized-sitemap and run-wide-budget logic without
+	 * needing to actually transfer tens of megabytes. Never set from the CLI
+	 * — production always uses SITEMAP_MAX_RESPONSE_BYTES /
+	 * SITEMAP_MAX_DECOMPRESSED_BYTES / SITEMAP_MAX_TOTAL_RUN_BYTES.
+	 */
+	sitemapLimits?: {
+		maxResponseBytes?: number
+		maxDecompressedBytes?: number
+		maxTotalRunBytes?: number
+	}
 }
 
 export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverrides = {}): Promise<ValidateLiveReport> {
@@ -170,26 +198,69 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 	// domain at a time, with at least --delay-ms between requests.
 	const scheduler = new DomainScheduler({ globalConcurrency: 1, perDomainConcurrency: 1, minDelayPerDomainMs: args.delayMs })
 
+	// The allowlist is otherwise only checked once, against --domain, before
+	// the first request. Re-check the final URL and every redirect hop here
+	// so a same-origin request that redirects to an unrelated (but still
+	// publicly routable) host is never silently followed — see
+	// src/lib/net/allowlist.ts: DisallowedRedirectError. Shared by both the
+	// page fetcher and the sitemap fetcher below.
+	function assertNoDisallowedRedirect(response: { redirectChain: string[]; url: string }): void {
+		for (const visitedUrl of [...response.redirectChain, response.url]) {
+			// `.host` (not `.hostname`) so this matches the same authority
+			// string used everywhere else a domain is compared against the
+			// allowlist (including test fixtures that encode a local server's
+			// port, e.g. "127.0.0.1:54321") — a real allowlisted domain never
+			// has a port, so `.host` and `.hostname` agree there.
+			const host = new URL(visitedUrl).host
+			if (!isDomainAllowlistedForLiveValidation(host, allowlist)) {
+				throw new DisallowedRedirectError(host)
+			}
+		}
+	}
+
 	const fetchText = (url: string): Promise<RobotsPageFetch> => {
 		const domain = new URL(url).hostname
 		return scheduler.schedule(domain, async () => {
 			const response = await safeFetch(url, { userAgent: args.userAgent, allowPrivateNetworks: overrides.allowPrivateNetworks })
+			assertNoDisallowedRedirect(response)
+			return { status: response.status, body: response.body }
+		})
+	}
 
-			// The allowlist is otherwise only checked once, against --domain,
-			// before the first request. Re-check the final URL and every
-			// redirect hop here so a same-origin request that redirects to an
-			// unrelated (but still publicly routable) host is never silently
-			// followed — see src/lib/net/allowlist.ts: DisallowedRedirectError.
-			for (const visitedUrl of [...response.redirectChain, response.url]) {
-				// `.host` (not `.hostname`) so this matches the same authority
-				// string used everywhere else a domain is compared against the
-				// allowlist (including test fixtures that encode a local
-				// server's port, e.g. "127.0.0.1:54321") — a real allowlisted
-				// domain never has a port, so `.host` and `.hostname` agree there.
-				const host = new URL(visitedUrl).host
-				if (!isDomainAllowlistedForLiveValidation(host, allowlist)) {
-					throw new DisallowedRedirectError(host)
-				}
+	// Separate from `fetchText` so ordinary HTML pages keep the default
+	// (smaller) response-size limits unchanged, while sitemap XML — which
+	// can legitimately be far larger — gets its own bounded budget. A
+	// run-wide cumulative byte counter additionally bounds total memory use
+	// across every nested sitemap file, independent of each file's own cap
+	// (see Task 6.1 §2: "Bound ... the total number of sitemap URLs and
+	// nested sitemap files" / "Avoid unbounded memory consumption").
+	const sitemapMaxResponseBytes = overrides.sitemapLimits?.maxResponseBytes ?? SITEMAP_MAX_RESPONSE_BYTES
+	const sitemapMaxDecompressedBytes = overrides.sitemapLimits?.maxDecompressedBytes ?? SITEMAP_MAX_DECOMPRESSED_BYTES
+	const sitemapMaxTotalRunBytes = overrides.sitemapLimits?.maxTotalRunBytes ?? SITEMAP_MAX_TOTAL_RUN_BYTES
+
+	let cumulativeSitemapBytes = 0
+	const fetchSitemapText = (url: string): Promise<RobotsPageFetch> => {
+		const domain = new URL(url).hostname
+		return scheduler.schedule(domain, async () => {
+			const response = await safeFetch(url, {
+				userAgent: args.userAgent,
+				allowPrivateNetworks: overrides.allowPrivateNetworks,
+				maxResponseBytes: sitemapMaxResponseBytes,
+				maxDecompressedBytes: sitemapMaxDecompressedBytes
+			})
+			assertNoDisallowedRedirect(response)
+
+			cumulativeSitemapBytes += response.body.length
+			if (cumulativeSitemapBytes > sitemapMaxTotalRunBytes) {
+				// Reported as a fetch failure for this specific sitemap file —
+				// discoverSitemapUrls records it as a diagnostic and keeps
+				// whatever URLs were already collected, rather than losing the
+				// whole run. The report's discovery.status becomes 'partial'
+				// (see live-validator.ts), never silently 'ok'.
+				throw new Error(
+					`Aborting: cumulative sitemap bytes fetched in this run (${cumulativeSitemapBytes}) exceeded the ` +
+						`${sitemapMaxTotalRunBytes}-byte run-wide budget (bound against unbounded memory use across many nested sitemap files)`
+				)
 			}
 
 			return { status: response.status, body: response.body }
@@ -212,6 +283,7 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 		sitemapEntryUrl,
 		robotsUrl,
 		fetchText,
+		fetchSitemapText,
 		storeProfile
 	})
 }

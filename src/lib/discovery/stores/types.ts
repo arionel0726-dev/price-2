@@ -17,6 +17,15 @@ export interface StoreUrlMatch {
 	dedupeKey: string
 	/** Optional language tag, when the store's URL structure encodes one (e.g. vizaje-nica.com's /ro//ru/ prefix). */
 	language?: string
+	/**
+	 * Human-readable explanation of *why* this URL was classified as a
+	 * product candidate (which pattern/heuristic matched). Surfaced in the
+	 * validate-live report's `candidateDiagnostics` so a reviewer can see,
+	 * for every selected URL, the specific reason it was picked — not just
+	 * a pass/fail bit. Optional for backward compatibility; profiles should
+	 * populate it.
+	 */
+	reason?: string
 }
 
 export interface StoreProfile {

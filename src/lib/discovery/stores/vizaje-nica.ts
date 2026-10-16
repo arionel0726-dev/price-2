@@ -11,7 +11,11 @@ import type { StoreProfile, StoreUrlMatch } from './types'
 function classifyProductUrl(url: string): StoreUrlMatch | null {
 	const match = matchVizajeNicaProductUrl(url)
 	if (!match) return null
-	return { dedupeKey: `${match.category}/${match.numericId}`, language: match.language }
+	return {
+		dedupeKey: `${match.category}/${match.numericId}`,
+		language: match.language,
+		reason: `Matched verified pilot pattern /${match.language}/catalog/${match.category}/${match.numericId} (confirmed against a real live sample — see Task 4/5 delivery notes)`
+	}
 }
 
 export const vizajeNicaStoreProfile: StoreProfile = {
