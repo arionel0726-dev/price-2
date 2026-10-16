@@ -4,6 +4,7 @@ import type { SitemapDiagnostic } from '../discovery/types'
 import { vizajeNicaStoreProfile } from '../discovery/stores/vizaje-nica'
 import type { StoreProfile } from '../discovery/stores/types'
 import { DisallowedRedirectError } from '../net/allowlist'
+import type { RobotsRules } from '../net/robots'
 import { fetchRobotsRules, isPathAllowed, type RobotsPageFetch } from '../net/robots-fetch'
 import { extractProductsFromHtml } from '../scraping/extract'
 import type { ExtractionFailure, NormalizedProductRecord } from '../scraping/types'
@@ -47,6 +48,15 @@ export interface ValidateLiveCoreOptions {
 	 */
 	fetchSitemapText?: (url: string) => Promise<RobotsPageFetch>
 	maxSitemapUrls?: number
+	/**
+	 * Called once, immediately after robots.txt is successfully fetched and
+	 * parsed, with the parsed rules — before any further request (sitemap or
+	 * product page) is made. Live mode uses this to read `Crawl-delay` (see
+	 * src/lib/net/robots.ts's `getCrawlDelaySeconds`) and raise its request
+	 * pacing accordingly (Task 7 §9) — this function itself never decides
+	 * pacing, keeping that entirely the caller's responsibility.
+	 */
+	onRobotsLoaded?: (rules: RobotsRules) => void
 	/**
 	 * The store-specific discovery profile (URL classification + dedup —
 	 * see src/lib/discovery/stores/). Defaults to vizaje-nica.com's
@@ -139,6 +149,8 @@ export async function validateLiveDomain(options: ValidateLiveCoreOptions): Prom
 			completeness: { averageFieldsPresentRatio: 0, fullyCompleteCount: 0 }
 		}
 	}
+
+	options.onRobotsLoaded?.(robots.rules)
 
 	const discovery = await discoverSitemapUrls([options.sitemapEntryUrl], {
 		fetchSitemap: (url) => fetchSitemapAdapter(url, options.fetchSitemapText ?? options.fetchText),

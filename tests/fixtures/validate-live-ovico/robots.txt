@@ -1,0 +1,14 @@
+User-agent: *
+Disallow: /ru/cart
+Disallow: /ro/cart
+Disallow: /ru/checkout
+Disallow: /ro/checkout
+Disallow: /ru/account
+Disallow: /ro/account
+Disallow: /ru/search
+Disallow: /ro/search
+Disallow: /ru/discontinued-product-99ml
+Crawl-delay: 30
+Allow: /
+
+Sitemap: https://ovico.md/media/sitemap/sitemap_index.xml

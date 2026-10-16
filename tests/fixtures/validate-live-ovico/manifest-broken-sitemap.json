@@ -1,0 +1,7 @@
+{
+	"sitemapUrl": "https://ovico.md/media/sitemap/sitemap_index.xml",
+	"sitemapFixture": "tests/fixtures/validate-live-ovico/sitemaps/sitemap-malformed.xml",
+	"robotsUrl": "https://ovico.md/robots.txt",
+	"robotsFixture": "tests/fixtures/validate-live-ovico/robots.txt",
+	"pageFixtures": {}
+}

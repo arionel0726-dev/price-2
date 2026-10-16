@@ -2,25 +2,29 @@ import { describe, expect, test } from 'bun:test'
 import { DisallowedRedirectError, isDomainAllowlistedForLiveValidation } from '../../src/lib/net/allowlist'
 
 describe('isDomainAllowlistedForLiveValidation', () => {
-	test('allows both pilot domains', () => {
+	test('allows all three pilot domains', () => {
 		expect(isDomainAllowlistedForLiveValidation('vizaje-nica.com')).toBe(true)
 		expect(isDomainAllowlistedForLiveValidation('makeup.md')).toBe(true)
+		expect(isDomainAllowlistedForLiveValidation('ovico.md')).toBe(true)
 	})
 
 	test('is case-insensitive', () => {
 		expect(isDomainAllowlistedForLiveValidation('Vizaje-Nica.COM')).toBe(true)
 		expect(isDomainAllowlistedForLiveValidation('Makeup.MD')).toBe(true)
+		expect(isDomainAllowlistedForLiveValidation('Ovico.MD')).toBe(true)
 	})
 
 	test('rejects an arbitrary domain by default', () => {
 		expect(isDomainAllowlistedForLiveValidation('example.com')).toBe(false)
 		expect(isDomainAllowlistedForLiveValidation('evil.vizaje-nica.com.attacker.test')).toBe(false)
 		expect(isDomainAllowlistedForLiveValidation('evil.makeup.md.attacker.test')).toBe(false)
+		expect(isDomainAllowlistedForLiveValidation('evil.ovico.md.attacker.test')).toBe(false)
 	})
 
 	test('rejects an arbitrary subdomain of an allowlisted domain (exact hostname match only)', () => {
 		expect(isDomainAllowlistedForLiveValidation('shop.makeup.md')).toBe(false)
 		expect(isDomainAllowlistedForLiveValidation('m.vizaje-nica.com')).toBe(false)
+		expect(isDomainAllowlistedForLiveValidation('shop.ovico.md')).toBe(false)
 	})
 
 	test('respects an explicit override allowlist (used only by tests, never by the CLI)', () => {

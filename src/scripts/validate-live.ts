@@ -25,6 +25,7 @@ import { getStoreProfile } from '../lib/discovery/stores/registry'
 import { vizajeNicaStoreProfile } from '../lib/discovery/stores/vizaje-nica'
 import { DisallowedRedirectError, isDomainAllowlistedForLiveValidation } from '../lib/net/allowlist'
 import { DomainScheduler } from '../lib/net/rate-limit'
+import { getCrawlDelaySeconds, type RobotsRules } from '../lib/net/robots'
 import { safeFetch } from '../lib/net/safe-fetch'
 import type { RobotsPageFetch } from '../lib/net/robots-fetch'
 import { MAX_PRODUCT_PAGES_PER_RUN, validateLiveDomain } from '../lib/validation/live-validator'
@@ -275,6 +276,20 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 	const sitemapEntryUrl = args.sitemapUrl ?? (overrides.protocol ? `${protocol}://${args.domain}/sitemap.xml` : storeProfile.defaultSitemapUrl)
 	const robotsUrl = `${protocol}://${args.domain}/robots.txt`
 
+	// robots.txt's own Crawl-delay (e.g. ovico.md's `Crawl-delay: 30`) must
+	// never be silently overridden by our --delay-ms default/argument — it
+	// can only ever be used to make pacing MORE conservative, never less
+	// (see DomainScheduler.raiseMinDelayForDomain and Task 7 §9). robots.txt
+	// is always the first request made to a domain in a run, so there is no
+	// request whose pacing could have already been computed with the old,
+	// smaller delay by the time this fires.
+	const onRobotsLoaded = (rules: RobotsRules) => {
+		const crawlDelaySeconds = getCrawlDelaySeconds(rules, args.userAgent)
+		if (crawlDelaySeconds !== null) {
+			scheduler.raiseMinDelayForDomain(new URL(robotsUrl).hostname, crawlDelaySeconds * 1000)
+		}
+	}
+
 	return validateLiveDomain({
 		domain: args.domain,
 		mode: 'live',
@@ -284,6 +299,7 @@ export async function runLiveMode(args: CliArgs, overrides: LiveModeTestOverride
 		robotsUrl,
 		fetchText,
 		fetchSitemapText,
+		onRobotsLoaded,
 		storeProfile
 	})
 }

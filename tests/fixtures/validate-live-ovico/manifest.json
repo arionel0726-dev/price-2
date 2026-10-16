@@ -1,0 +1,18 @@
+{
+	"sitemapUrl": "https://ovico.md/media/sitemap/sitemap_index.xml",
+	"sitemapFixture": "tests/fixtures/validate-live-ovico/sitemaps/sitemap-index.xml",
+	"robotsUrl": "https://ovico.md/robots.txt",
+	"robotsFixture": "tests/fixtures/validate-live-ovico/robots.txt",
+	"pageFixtures": {
+		"https://ovico.md/media/sitemap/sitemap-products.xml": "tests/fixtures/validate-live-ovico/sitemaps/sitemap-products.xml",
+		"https://ovico.md/ru/jo-malone-london-pine-eucalyptus-diffuser-165ml": "tests/fixtures/validate-live-ovico/html/jo-malone-diffuser-complete.html",
+		"https://ovico.md/ro/jo-malone-london-pine-eucalyptus-diffuser-165ml": "tests/fixtures/validate-live-ovico/html/jo-malone-diffuser-ro-variant.html",
+		"https://ovico.md/ru/dior-sauvage-edt-100ml": "tests/fixtures/validate-live-ovico/html/dior-sauvage-invalid-gtin.html",
+		"https://ovico.md/ru/chanel-no5-edp-50ml": "tests/fixtures/validate-live-ovico/html/chanel-no5-missing-jsonld.html",
+		"https://ovico.md/ru/versace-eros-edt-100ml": "tests/fixtures/validate-live-ovico/html/versace-eros-malformed-jsonld.html",
+		"https://ovico.md/ru/guerlain-shalimar-edp-90ml": "tests/fixtures/validate-live-ovico/html/guerlain-shalimar-unavailable.html",
+		"https://ovico.md/ru/ysl-black-opium-multi": "tests/fixtures/validate-live-ovico/html/ysl-black-opium-multi-variant.html",
+		"https://ovico.md/ru/parfumuri-sezon": "tests/fixtures/validate-live-ovico/html/parfumuri-sezon-category.html",
+		"https://ovico.md/ru/discontinued-product-99ml": "tests/fixtures/validate-live-ovico/html/discontinued-product-should-never-be-fetched.html"
+	}
+}

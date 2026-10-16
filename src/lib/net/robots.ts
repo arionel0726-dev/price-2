@@ -7,10 +7,19 @@
  *
  * Known limitations (documented rather than silently ignored):
  * - No wildcard (`*`, `$`) matching inside Disallow/Allow values.
- * - No `Crawl-delay` or `Sitemap` directive handling (sitemaps are
- *   discovered explicitly by the caller instead).
- * - Group selection uses the first matching `User-agent` section, not the
- *   most specific one as some crawlers do.
+ * - No `Sitemap` directive handling (sitemaps are discovered explicitly by
+ *   the caller instead).
+ * - `Crawl-delay` IS parsed (see `getCrawlDelaySeconds` below) — this was
+ *   added for Task 7 (ovico.md's robots.txt specifies `Crawl-delay: 30`)
+ *   after it was identified as an unsafe gap: the live-mode scheduler must
+ *   never silently fall back to a shorter default delay than a site
+ *   explicitly asked for.
+ * - Group selection prefers the LONGEST matching non-wildcard `User-agent`
+ *   token over the wildcard group (see `selectAgentGroup`) — this applies
+ *   uniformly to Allow/Disallow matching and to `Crawl-delay` selection, so
+ *   neither can be chosen from "whichever group happened to be declared
+ *   first" when more than one group's token matches our configured
+ *   User-Agent.
  *
  * Before live crawling a real site, these results should be spot-checked
  * against the site's actual published robots.txt by a human.
@@ -23,10 +32,13 @@ export interface RobotsRule {
 
 export interface RobotsRules {
 	groups: Map<string, RobotsRule[]>
+	/** Parsed `Crawl-delay` (in seconds) per user-agent group, when present. */
+	crawlDelaysSeconds: Map<string, number>
 }
 
 export function parseRobotsTxt(content: string): RobotsRules {
 	const groups = new Map<string, RobotsRule[]>()
+	const crawlDelaysSeconds = new Map<string, number>()
 	let currentAgents: string[] = []
 
 	for (const rawLine of content.split(/\r?\n/)) {
@@ -52,18 +64,56 @@ export function parseRobotsTxt(content: string): RobotsRules {
 			for (const agent of currentAgents) {
 				groups.get(agent)?.push({ type: field, path: value })
 			}
+			continue
+		}
+
+		if (field === 'crawl-delay') {
+			if (currentAgents.length === 0) continue
+			const seconds = Number(value)
+			if (!Number.isFinite(seconds) || seconds < 0) continue
+			for (const agent of currentAgents) {
+				crawlDelaysSeconds.set(agent, seconds)
+			}
 		}
 	}
 
-	return { groups }
+	return { groups, crawlDelaysSeconds }
+}
+
+/**
+ * Selects the robots.txt group that applies to `userAgent`: the LONGEST
+ * (most specific) declared non-wildcard agent token that is a substring of
+ * `userAgent`, falling back to the wildcard group. Longest-match, not
+ * declaration order, is what decides this — a robots.txt that declares a
+ * narrow group after a broader one (or vice versa) must not change which
+ * group our bot is governed by.
+ */
+function selectAgentGroup(rules: RobotsRules, userAgent: string): string {
+	const normalizedAgent = userAgent.toLowerCase()
+	let best: string | null = null
+	for (const agent of rules.groups.keys()) {
+		if (agent === '*') continue
+		if (!normalizedAgent.includes(agent)) continue
+		if (best === null || agent.length > best.length) best = agent
+	}
+	return best ?? '*'
 }
 
 function selectGroup(rules: RobotsRules, userAgent: string): RobotsRule[] {
-	const normalizedAgent = userAgent.toLowerCase()
-	for (const [agent, group] of rules.groups) {
-		if (agent !== '*' && normalizedAgent.includes(agent)) return group
-	}
-	return rules.groups.get('*') ?? []
+	return rules.groups.get(selectAgentGroup(rules, userAgent)) ?? rules.groups.get('*') ?? []
+}
+
+/**
+ * Returns the `Crawl-delay` (in seconds) that applies to `userAgent`, or
+ * `null` when robots.txt did not specify one for this agent/the wildcard
+ * group. Callers (see src/scripts/validate-live.ts) must use this to RAISE
+ * their request pacing, never to lower it below their own conservative
+ * default.
+ */
+export function getCrawlDelaySeconds(rules: RobotsRules, userAgent: string): number | null {
+	const agent = selectAgentGroup(rules, userAgent)
+	const delay = rules.crawlDelaysSeconds.get(agent) ?? rules.crawlDelaysSeconds.get('*')
+	return delay ?? null
 }
 
 /**

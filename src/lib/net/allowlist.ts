@@ -10,7 +10,14 @@
  * live validation tool from being pointed at an arbitrary *public* site
  * without that site having been explicitly approved for pilot validation.
  */
-const LIVE_VALIDATION_DOMAIN_ALLOWLIST = new Set<string>(['vizaje-nica.com', 'www.vizaje-nica.com', 'makeup.md', 'www.makeup.md'])
+const LIVE_VALIDATION_DOMAIN_ALLOWLIST = new Set<string>([
+	'vizaje-nica.com',
+	'www.vizaje-nica.com',
+	'makeup.md',
+	'www.makeup.md',
+	'ovico.md',
+	'www.ovico.md'
+])
 
 /**
  * Exact-hostname membership check only — no wildcard, suffix, or subdomain
